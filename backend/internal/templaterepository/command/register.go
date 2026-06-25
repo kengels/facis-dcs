@@ -6,15 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
-	templatecatalogueintegration "digital-contracting-service/gen/template_catalogue_integration"
+	"digital-contracting-service/internal/base"
+
 	"digital-contracting-service/internal/base/datatype"
 	"digital-contracting-service/internal/base/datatype/componenttype"
 	"digital-contracting-service/internal/base/datatype/userrole"
 	"digital-contracting-service/internal/base/event"
-	"digital-contracting-service/internal/fcasset"
 	fcclient "digital-contracting-service/internal/templatecatalogueintegration/client"
 	templatequery "digital-contracting-service/internal/templatecatalogueintegration/query/template"
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
@@ -27,7 +26,6 @@ import (
 
 type RegisterCmd struct {
 	DID          string
-	NewDID       string
 	Version      int
 	RegisteredBy string
 	HolderDID    string
@@ -40,57 +38,15 @@ type Registrar struct {
 	FCClient *fcclient.FederatedCatalogueClient
 }
 
-func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) error {
+func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) (*string, error) {
+
 	if cmd.DID == "" {
-		return errors.New("did is empty")
-	}
-	if cmd.NewDID == "" {
-		return errors.New("new did is empty")
-	}
-	if cmd.Version < 1 {
-		return errors.New("version must be greater than 0")
-	}
-	if h.FCClient == nil {
-		return fcclient.ErrFederatedCatalogueNotConfigured
-	}
-
-	queryHandler := templatequery.GetByIDHandler{
-		Ctx:      ctx,
-		FCClient: h.FCClient,
-	}
-	fcTemplate, err := queryHandler.Handle(templatequery.GetByIDQry{
-		DID:     cmd.DID,
-		Version: cmd.Version,
-	})
-	if err != nil {
-		return fmt.Errorf("could not retrieve template from Federated Catalogue: %w", err)
-	}
-	if fcTemplate == nil {
-		return fcclient.ErrTemplateNotFoundInFederatedCatalogue
-	}
-
-	templateDataMap, err := fcasset.FetchDocument(ctx, cmd.DID)
-	if err != nil {
-		return fmt.Errorf("could not fetch remote template data: %w", err)
-	}
-
-	templateData, err := datatype.NewJSON(templateDataMap)
-	if err != nil {
-		return fmt.Errorf("marshal template data failed: %w", err)
-	}
-
-	templateTypeValue := resolveTemplateType(fcTemplate, templateDataMap)
-	if templateTypeValue == "" {
-		return fmt.Errorf("template type is missing from Federated Catalogue entry")
-	}
-	templateType, err := contracttemplatetype.NewContractTemplateType(templateTypeValue)
-	if err != nil {
-		return fmt.Errorf("invalid template type from Federated Catalogue: %w", err)
+		return nil, errors.New("did is empty")
 	}
 
 	tx, err := h.DB.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("could not start transaction: %w", err)
+		return nil, fmt.Errorf("could not start transaction: %w", err)
 	}
 	defer func(tx *sqlx.Tx) {
 		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
@@ -99,56 +55,169 @@ func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) error {
 	}(tx)
 
 	existing, err := h.CTRepo.ReadDataByID(ctx, tx, cmd.DID)
-	if err == nil {
-		return fmt.Errorf("this template already exists in local repository: %s", existing.DID)
-	}
-	if !errors.Is(err, db.ErrContractTemplateNotFound) {
-		return fmt.Errorf("could not read template: %w", err)
-	}
-
-	_, err = h.CTRepo.Create(ctx, tx, db.ContractTemplate{
-		DID:            cmd.NewDID,
-		DocumentNumber: fcTemplate.DocumentNumber,
-		State:          contracttemplatestate.Draft.String(),
-		TemplateType:   templateType.String(),
-		Name:           fcTemplate.Name,
-		Description:    fcTemplate.Description,
-		CreatedBy:      cmd.RegisteredBy,
-		TemplateData:   &templateData,
-	})
 	if err != nil {
-		return fmt.Errorf("could not create registered contract template: %w", err)
+		return nil, fmt.Errorf("could not check if contract template already exists: %s", cmd.DID)
 	}
 
-	evt := templateevents.RegisterEvent{
-		DID:           cmd.NewDID,
-		RegisteredBy:  cmd.RegisteredBy,
-		UpdatedAt:     time.Now().UTC(),
-		Name:          fcTemplate.Name,
-		Description:   fcTemplate.Description,
-		TemplateData:  &templateData,
-		SourceDID:     cmd.DID,
-		SourceVersion: cmd.Version,
-		OccurredAt:    time.Now().UTC(),
-		HolderDID:     cmd.HolderDID,
-		UserRoles:     cmd.UserRoles,
-	}
-	err = event.Create(ctx, tx, evt, componenttype.ContractTemplateRepo)
+	err = tx.Commit()
 	if err != nil {
-		return fmt.Errorf("could not create event: %w", err)
+		return nil, fmt.Errorf("could not commit transaction: %w", err)
 	}
 
-	return tx.Commit()
+	if existing != nil {
+
+		tx, err := h.DB.BeginTxx(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not start transaction: %w", err)
+		}
+		defer func(tx *sqlx.Tx) {
+			if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+				log.Printf("could not rollback transaction: %v", err)
+			}
+		}(tx)
+
+		err = h.CTRepo.UpdateState(ctx, tx, cmd.DID, contracttemplatestate.Registered.String())
+		if err != nil {
+			return nil, fmt.Errorf("could not update registered state: %w", err)
+		}
+
+		newState := contracttemplatestate.Registered.String()
+		evt := templateevents.RegisterEvent{
+			DID:           cmd.DID,
+			RegisteredBy:  cmd.RegisteredBy,
+			UpdatedAt:     time.Now().UTC(),
+			Name:          existing.Name,
+			Description:   existing.Description,
+			TemplateData:  existing.TemplateData,
+			SourceDID:     existing.DID,
+			SourceVersion: existing.Version,
+			OccurredAt:    time.Now().UTC(),
+			HolderDID:     cmd.HolderDID,
+			UserRoles:     cmd.UserRoles,
+			PreviousState: &existing.State,
+			NewState:      &newState,
+		}
+		err = event.Create(ctx, tx, evt, componenttype.ContractTemplateRepo)
+		if err != nil {
+			return nil, fmt.Errorf("could not create event: %w", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			return nil, fmt.Errorf("could not commit transaction: %w", err)
+		}
+
+		return &cmd.DID, nil
+
+	} else {
+
+		if cmd.Version < 1 {
+			return nil, errors.New("version must be greater than 0")
+		}
+
+		if h.FCClient == nil {
+			return nil, fcclient.ErrFederatedCatalogueNotConfigured
+		}
+
+		newDID, err := base.GetDID(datatype.TemplateResourceType)
+		if err != nil {
+			return nil, fmt.Errorf("could not get new DID for contract template: %w", err)
+		}
+
+		queryHandler := templatequery.GetByIDHandler{
+			Ctx:      ctx,
+			FCClient: h.FCClient,
+		}
+		fcTemplate, err := queryHandler.Handle(templatequery.GetByIDQry{
+			DID:     cmd.DID,
+			Version: cmd.Version,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("could not retrieve template from Federated Catalogue: %w", err)
+		}
+		if fcTemplate == nil {
+			return nil, fcclient.ErrTemplateNotFoundInFederatedCatalogue
+		}
+
+		templateData, err := templateDataFromAny(fcTemplate.TemplateData)
+		if err != nil {
+			return nil, err
+		}
+
+		templateTypeValue := ""
+		if fcTemplate.TemplateType != nil {
+			templateTypeValue = *fcTemplate.TemplateType
+		}
+		templateType, err := contracttemplatetype.NewContractTemplateType(templateTypeValue)
+		if err != nil {
+			return nil, fmt.Errorf("invalid template type from Federated Catalogue: %w", err)
+		}
+
+		tx, err := h.DB.BeginTxx(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not start transaction: %w", err)
+		}
+		defer func(tx *sqlx.Tx) {
+			if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+				log.Printf("could not rollback transaction: %v", err)
+			}
+		}(tx)
+
+		_, err = h.CTRepo.Create(ctx, tx, db.ContractTemplate{
+			DID:            *newDID,
+			DocumentNumber: fcTemplate.DocumentNumber,
+			State:          contracttemplatestate.Draft.String(),
+			TemplateType:   templateType.String(),
+			Name:           fcTemplate.Name,
+			Description:    fcTemplate.Description,
+			CreatedBy:      cmd.RegisteredBy,
+			TemplateData:   templateData,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("could not create registered contract template: %w", err)
+		}
+
+		evt := templateevents.RegisterEvent{
+			DID:           *newDID,
+			RegisteredBy:  cmd.RegisteredBy,
+			UpdatedAt:     time.Now().UTC(),
+			Name:          fcTemplate.Name,
+			Description:   fcTemplate.Description,
+			TemplateData:  templateData,
+			SourceDID:     cmd.DID,
+			SourceVersion: cmd.Version,
+			OccurredAt:    time.Now().UTC(),
+			HolderDID:     cmd.HolderDID,
+			UserRoles:     cmd.UserRoles,
+		}
+		err = event.Create(ctx, tx, evt, componenttype.ContractTemplateRepo)
+		if err != nil {
+			return nil, fmt.Errorf("could not create event: %w", err)
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			return nil, fmt.Errorf("could not commit transaction: %w", err)
+		}
+
+		return newDID, nil
+	}
 }
 
-func resolveTemplateType(fcTemplate *templatecatalogueintegration.TemplateCatalogueRetrieveByIDResponse, templateData map[string]any) string {
-	if fcTemplate.TemplateType != nil && strings.TrimSpace(*fcTemplate.TemplateType) != "" {
-		return *fcTemplate.TemplateType
+func templateDataFromAny(raw any) (*datatype.JSON, error) {
+	if raw == nil {
+		return nil, errors.New("template data is missing from Federated Catalogue")
 	}
-	if metadata, ok := templateData["dcs:metadata"].(map[string]any); ok {
-		if value, ok := metadata["dcs:templateType"].(string); ok {
-			return value
-		}
+
+	templateDataMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, errors.New("invalid template data format from Federated Catalogue")
 	}
-	return ""
+
+	templateData, err := datatype.NewJSON(templateDataMap)
+	if err != nil {
+		return nil, fmt.Errorf("marshal template data failed: %w", err)
+	}
+
+	return &templateData, nil
 }

@@ -127,8 +127,8 @@ func (h *Verifier) verifyTemplateResourceSelfDescription(ctx context.Context, cm
 	}
 
 	findings := []string{}
-	if cmd.ParticipantID == "" {
-		findings = append(findings, "participantID is empty")
+	if cmd.HolderDID == "" {
+		findings = append(findings, "holderDID is empty")
 	}
 
 	documentNumber := ""
@@ -154,7 +154,7 @@ func (h *Verifier) verifyTemplateResourceSelfDescription(ctx context.Context, cm
 		}
 	}
 
-	templateJSONLD, err := buildCatalogueVerificationPayload(cmd.DID, cmd.ParticipantID, processData, fullTemplate)
+	templateJSONLD, err := buildCatalogueVerificationPayload(cmd.DID, cmd.HolderDID, processData, fullTemplate)
 	if err != nil {
 		return nil, err
 	}

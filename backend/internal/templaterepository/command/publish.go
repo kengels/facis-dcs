@@ -23,12 +23,11 @@ import (
 )
 
 type PublishCmd struct {
-	DID           string
-	UpdatedAt     time.Time
-	PublishedBy   string
-	HolderDID     string
-	ParticipantID string
-	UserRoles     userrole.UserRoles
+	DID         string
+	UpdatedAt   time.Time
+	PublishedBy string
+	HolderDID   string
+	UserRoles   userrole.UserRoles
 }
 
 type Publisher struct {
@@ -67,8 +66,8 @@ func (h *Publisher) Handle(ctx context.Context, cmd PublishCmd) error {
 		return errors.New("contract template was updated elsewhere, please reload")
 	}
 
-	if processData.State != contracttemplatestate.Approved.String() {
-		return errors.New("contract template must be in approved state to publish")
+	if processData.State != contracttemplatestate.Registered.String() {
+		return errors.New("contract template must be in registered state to publish")
 	}
 
 	if h.FCClient == nil {
@@ -100,8 +99,8 @@ func (h *Publisher) Handle(ctx context.Context, cmd PublishCmd) error {
 	if processData.State == contracttemplatestate.Published.String() {
 		return nil
 	}
-	if processData.State != contracttemplatestate.Approved.String() {
-		return errors.New("contract template must be in approved state to publish")
+	if processData.State != contracttemplatestate.Registered.String() {
+		return errors.New("contract template must be in registered state to publish")
 	}
 
 	err = h.CTRepo.UpdateState(ctx, tx, cmd.DID, contracttemplatestate.Published.String())
@@ -127,8 +126,8 @@ func (h *Publisher) Handle(ctx context.Context, cmd PublishCmd) error {
 }
 
 func (h *Publisher) publishTemplateResourceToFC(ctx context.Context, cmd PublishCmd, processData *db.ContractTemplateProcessData, fullTemplate *db.ContractTemplate) error {
-	if cmd.ParticipantID == "" {
-		return fmt.Errorf("participant id is empty")
+	if cmd.HolderDID == "" {
+		return fmt.Errorf("holder did is empty")
 	}
 
 	name := ""
@@ -143,7 +142,7 @@ func (h *Publisher) publishTemplateResourceToFC(ctx context.Context, cmd Publish
 	}
 
 	payload, err := fcasset.BuildPayload(fcasset.BuildInput{
-		Issuer:    cmd.ParticipantID,
+		Issuer:    cmd.HolderDID,
 		ValidFrom: fullTemplate.UpdatedAt,
 		Subject: fcasset.CatalogueSubjectFromRepository(
 			cmd.DID,

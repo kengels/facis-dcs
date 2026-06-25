@@ -61,7 +61,7 @@ func (h *GetTemplateDataByDIDHandler) getFrameContractTemplateDataFromDB(ctx con
 	if err != nil {
 		return nil, 0, fmt.Errorf("could not commit transaction: %w", err)
 	}
-	return templateData.TemplateData, templateData.Version, nil
+	return templateData.TemplateData, templateData.TemplateVersion, nil
 }
 
 func convertTemplateDataToContractData(raw *datatype.JSON, templateDID string, templateVersions ...int) (*datatype.JSON, error) {
