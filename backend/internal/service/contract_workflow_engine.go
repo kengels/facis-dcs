@@ -83,11 +83,10 @@ func (s *contractWorkflowEnginesrvc) Create(ctx context.Context, req *contractwo
 		DID: req.Did,
 	}
 	queryHandler := contracttemplatequery.GetTemplateDataByDIDHandler{
-		Ctx:      ctx,
-		DB:       s.DB,
-		CTRepo:   s.CTRepo,
-		FCClient: s.FCClient,
+		DB:     s.DB,
+		CTRepo: s.CTRepo,
 	}
+
 	contractData, err := queryHandler.Handle(ctx, qry)
 	if err != nil {
 		return nil, contractworkflowengine.MakeInternalError(err)

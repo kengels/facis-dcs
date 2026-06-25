@@ -17,7 +17,6 @@ import (
 	"digital-contracting-service/internal/base/datatype/userrole"
 	"digital-contracting-service/internal/base/event"
 	"digital-contracting-service/internal/fcasset"
-	semanticmapper "digital-contracting-service/internal/semantic/mapper"
 	fcclient "digital-contracting-service/internal/templatecatalogueintegration/client"
 	"digital-contracting-service/internal/templaterepository/datatype/reviewtaskstate"
 	"digital-contracting-service/internal/templaterepository/db"
@@ -155,22 +154,12 @@ func (h *Verifier) verifyTemplateResourceSelfDescription(ctx context.Context, cm
 		}
 	}
 
-	templateJSONLD, err := semanticmapper.BuildTemplateJSONLD(*fullTemplate, semanticmapper.DefaultProfile())
+	templateJSONLD, err := buildCatalogueVerificationPayload(cmd.DID, cmd.ParticipantID, processData, fullTemplate)
 	if err != nil {
-		return nil, fmt.Errorf("build template json-ld failed: %w", err)
+		return nil, err
 	}
 
-	payload, err := fcasset.BuildPayload(fcasset.BuildInput{
-		TemplateDID:  cmd.DID,
-		Issuer:       cmd.ParticipantID,
-		ValidFrom:    fullTemplate.UpdatedAt,
-		TemplateData: templateJSONLD,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("build template asset payload failed: %w", err)
-	}
-
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(templateJSONLD)
 	if err != nil {
 		return nil, fmt.Errorf("marshal template asset payload failed: %w", err)
 	}
@@ -198,4 +187,32 @@ func (h *Verifier) verifyTemplateResourceSelfDescription(ctx context.Context, cm
 	}
 
 	return findings, nil
+}
+
+func buildCatalogueVerificationPayload(
+	did string,
+	issuer string,
+	processData *db.ContractTemplateProcessData,
+	fullTemplate *db.ContractTemplate,
+) (map[string]any, error) {
+	name := ""
+	description := ""
+	if fullTemplate.Name != nil {
+		name = *fullTemplate.Name
+	}
+	if fullTemplate.Description != nil {
+		description = *fullTemplate.Description
+	}
+
+	return fcasset.BuildPayload(fcasset.BuildInput{
+		Issuer:    issuer,
+		ValidFrom: fullTemplate.UpdatedAt,
+		Subject: fcasset.CatalogueSubjectFromRepository(
+			did,
+			processData.Version,
+			processData.State,
+			name,
+			description,
+		),
+	})
 }

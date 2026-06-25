@@ -14,7 +14,6 @@ import (
 	"digital-contracting-service/internal/base/datatype/userrole"
 	"digital-contracting-service/internal/base/event"
 	"digital-contracting-service/internal/fcasset"
-	semanticmapper "digital-contracting-service/internal/semantic/mapper"
 	fcclient "digital-contracting-service/internal/templatecatalogueintegration/client"
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
 	"digital-contracting-service/internal/templaterepository/db"
@@ -131,16 +130,28 @@ func (h *Publisher) publishTemplateResourceToFC(ctx context.Context, cmd Publish
 	if cmd.ParticipantID == "" {
 		return fmt.Errorf("participant id is empty")
 	}
-	templateJSONLD, err := semanticmapper.BuildTemplateJSONLD(*fullTemplate, semanticmapper.DefaultProfile())
-	if err != nil {
-		return fmt.Errorf("build template json-ld failed: %w", err)
+
+	name := ""
+	description := ""
+
+	if fullTemplate.Name != nil {
+		name = *fullTemplate.Name
+	}
+
+	if fullTemplate.Description != nil {
+		description = *fullTemplate.Description
 	}
 
 	payload, err := fcasset.BuildPayload(fcasset.BuildInput{
-		TemplateDID:  cmd.DID,
-		Issuer:       cmd.ParticipantID,
-		ValidFrom:    fullTemplate.UpdatedAt,
-		TemplateData: templateJSONLD,
+		Issuer:    cmd.ParticipantID,
+		ValidFrom: fullTemplate.UpdatedAt,
+		Subject: fcasset.CatalogueSubjectFromRepository(
+			cmd.DID,
+			processData.Version,
+			processData.State,
+			name,
+			description,
+		),
 	})
 
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 
 type SearchQry struct {
 	DID            string
-	DocumentNumber string
+	DocumentNumber string // ignored for thin catalogue entries
 	Version        int
 	Name           string
 	Description    string
@@ -28,28 +28,21 @@ type SearchHandler struct {
 const searchTemplatesCountStatementTemplate = `
 MATCH (ct:ContractTemplate)
 WHERE head(ct.claimsGraphUri) IS NOT NULL
-OPTIONAL MATCH (m:TemplateMetadata {did: head(ct.claimsGraphUri)})
 %s
 RETURN count(ct) AS total
 `
 
-// TODO: fix FC GraphDB issue
 const searchTemplatesStatementTemplate = `
 MATCH (ct:ContractTemplate)
 WHERE head(ct.claimsGraphUri) IS NOT NULL
-OPTIONAL MATCH (m:TemplateMetadata {did: head(ct.claimsGraphUri)})
 %s
 RETURN {
-  did: ct.did,
-  document_number: ct.documentNumber,
-  version: ct.version,
-  schema_version: ct.schemaVersion,
+  did: head(ct.claimsGraphUri),
   name: ct.name,
   description: ct.description,
-  template_type: ct.templateType,
-  participant_id: ct.participantId,
-  created_at: ct.createdAt,
-  updated_at: ct.updatedAt
+  version: ct.version,
+  state: ct.state,
+  template_uuid: ct.templateUuid
 } AS n
 SKIP %d
 LIMIT %d
@@ -110,31 +103,27 @@ func formatSearchWhereSection(whereClause string) string {
 	if whereClause == "" {
 		return ""
 	}
-	return "WHERE " + whereClause + "\n"
+	return "AND " + whereClause
 }
 
 func buildSearchWhereClause(qry SearchQry) (string, map[string]string) {
-	conditions := make([]string, 0, 5)
+	conditions := make([]string, 0, 4)
 	params := make(map[string]string)
 
 	if value := strings.TrimSpace(qry.DID); value != "" {
-		conditions = append(conditions, "toLower(coalesce(m.did, head(ct.claimsGraphUri))) CONTAINS toLower($did)")
+		conditions = append(conditions, "toLower(head(ct.claimsGraphUri)) CONTAINS toLower($did)")
 		params["did"] = value
 	}
-	if value := strings.TrimSpace(qry.DocumentNumber); value != "" {
-		conditions = append(conditions, "toLower(coalesce(m.documentNumber, ct.documentNumber)) CONTAINS toLower($document_number)")
-		params["document_number"] = value
-	}
 	if qry.Version > 0 {
-		conditions = append(conditions, "toInteger(coalesce(m.templateVersion, ct.templateVersion, ct.version)) = toInteger($version)")
+		conditions = append(conditions, "ct.version = toString($version)")
 		params["version"] = strconv.Itoa(qry.Version)
 	}
 	if value := strings.TrimSpace(qry.Name); value != "" {
-		conditions = append(conditions, "toLower(coalesce(m.name, m.title, ct.name)) CONTAINS toLower($name)")
+		conditions = append(conditions, "toLower(coalesce(ct.name, '')) CONTAINS toLower($name)")
 		params["name"] = value
 	}
 	if value := strings.TrimSpace(qry.Description); value != "" {
-		conditions = append(conditions, "toLower(coalesce(m.description, ct.description)) CONTAINS toLower($description)")
+		conditions = append(conditions, "toLower(coalesce(ct.description, '')) CONTAINS toLower($description)")
 		params["description"] = value
 	}
 

@@ -16,20 +16,14 @@ const filterLabels: Partial<Record<keyof TemplateResourcesItem, string>> = {
   did: 'DID',
   name: 'Name',
   description: 'Description',
-  document_number: 'Document number',
   version: 'Version',
 }
 
 const emptyTemplate: TemplateResourcesItem = {
   did: '',
-  document_number: '',
   version: 1,
   name: '',
   description: '',
-  template_type: '',
-  participant_id: '',
-  created_at: '',
-  updated_at: '',
 }
 
 const responseMapper = (response: TemplateCatalogueRetrieveResponse) => response.items ?? []
@@ -41,9 +35,6 @@ const searchFn = async (request: Record<string, unknown>) => {
   }
   if (request.did) {
     params.did = request.did
-  }
-  if (request.document_number) {
-    params.document_number = request.document_number
   }
   const version = Number(request.version)
   if (!Number.isNaN(version) && version > 0) {

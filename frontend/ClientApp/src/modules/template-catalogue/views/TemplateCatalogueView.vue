@@ -25,6 +25,12 @@
         <div v-if="loading" class="px-4">Loading Template Catalogue...</div>
         <div v-else-if="error" class="px-4">{{ error }}</div>
         <div v-else>
+          <p
+            v-if="remoteTemplateUnreachable"
+            class="mb-4 rounded-lg border border-base-300 bg-base-100 p-4 text-base-content"
+          >
+            Remote template source is currently unreachable.
+          </p>
           <CatalogueTemplateDetailsInfo v-show="activeTab === 'details'" />
           <CatalogueTemplateMetaDataInfo v-show="activeTab === 'meta'" />
           <CatalogueTemplatePreviewInfo v-show="activeTab === 'preview'" />
@@ -77,6 +83,7 @@ const version = computed(() => {
 
 const loading = ref(false)
 const error = ref<string | null>(null)
+const remoteTemplateUnreachable = ref(false)
 const catalogue = ref<TemplateCatalogueRetrieveByIdResponse | null>(null)
 
 const registerLoading = ref(false)
@@ -130,6 +137,7 @@ watch(
     }
     loading.value = true
     error.value = null
+    remoteTemplateUnreachable.value = false
     activeTab.value = 'details'
 
     try {
@@ -146,8 +154,7 @@ watch(
 
       const templateData = data.template_data
       if (!templateData) {
-        error.value = 'Template data is missing from catalogue response'
-        return
+        remoteTemplateUnreachable.value = true
       }
 
       draftStore.reset({
@@ -155,12 +162,12 @@ watch(
         did: data.did,
         name: data.name ?? '',
         description: data.description ?? '',
-        templateDataVersion: templateData.templateDataVersion ?? 1,
-        documentOutline: templateData.documentOutline ?? [],
-        documentBlocks: templateData.documentBlocks ?? [],
-        semanticConditions: templateData.semanticConditions ?? [],
-        customMetaData: templateData.customMetaData ?? [],
-        subTemplateSnapshots: templateData.subTemplateSnapshots ?? [],
+        templateDataVersion: templateData?.templateDataVersion ?? 1,
+        documentOutline: templateData?.documentOutline ?? [],
+        documentBlocks: templateData?.documentBlocks ?? [],
+        semanticConditions: templateData?.semanticConditions ?? [],
+        customMetaData: templateData?.customMetaData ?? [],
+        subTemplateSnapshots: templateData?.subTemplateSnapshots ?? [],
         templateType: toTemplateType(data.template_type),
         state: TemplateState.draft,
         document_number: data.document_number ?? null,

@@ -2,7 +2,6 @@ package template
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -22,25 +21,21 @@ type GetAllMetadataHandler struct {
 }
 
 const retrieveTemplatesCountStatement = `
-MATCH (n:ContractTemplate)
-RETURN count(n) AS total
+MATCH (ct:ContractTemplate)
+WHERE head(ct.claimsGraphUri) IS NOT NULL
+RETURN count(ct) AS total
 `
 
-// TODO: fix FC GraphDB issue
 const retrieveTemplatesStatementTemplate = `
 MATCH (ct:ContractTemplate)
-OPTIONAL MATCH (ct)-[:metadata]->(m)
+WHERE head(ct.claimsGraphUri) IS NOT NULL
 RETURN {
   did: head(ct.claimsGraphUri),
-  document_number: m.documentNumber,
-  version: m.templateVersion,
-  schema_version: m.schemaVersion,
-  name: m.name,
-  description: m.description,
-  template_type: m.templateType,
-  participant_id: m.createdBy,
-  created_at: m.createdAt,
-  updated_at: m.updatedAt
+  name: ct.name,
+  description: ct.description,
+  version: ct.version,
+  state: ct.state,
+  template_uuid: ct.templateUuid
 } AS n
 SKIP %d
 LIMIT %d
@@ -107,33 +102,16 @@ func mapCatalogueItem(ct map[string]interface{}) *templatecatalogueintegration.T
 	if ct == nil {
 		return nil
 	}
+
 	did := ptr.StringFromMap(ct, "did")
 	if strings.TrimSpace(did) == "" {
 		return nil
 	}
+
 	return &templatecatalogueintegration.TemplateCatalogueItem{
-		Did:            did,
-		DocumentNumber: ptr.Ref(ptr.StringFromMap(ct, "document_number")),
-		Version:        ptr.Ref(ptr.IntFromMap(ct, "version")),
-		SchemaVersion:  ptr.Ref(ptr.IntFromMap(ct, "schema_version")),
-		Name:           ptr.Ref(ptr.StringFromMap(ct, "name")),
-		Description:    ptr.Ref(ptr.StringFromMap(ct, "description")),
-		TemplateType:   ptr.Ref(ptr.StringFromMap(ct, "template_type")),
-		ParticipantID:  ptr.Ref(ptr.StringFromMap(ct, "participant_id")),
-		CreatedAt:      ptr.Ref(ptr.StringFromMap(ct, "created_at")),
-		UpdatedAt:      ptr.Ref(ptr.StringFromMap(ct, "updated_at")),
+		Did:         did,
+		Version:     ptr.Ref(ptr.IntFromMap(ct, "version")),
+		Name:        ptr.Ref(ptr.StringFromMap(ct, "name")),
+		Description: ptr.Ref(ptr.StringFromMap(ct, "description")),
 	}
-}
-
-func parseTemplateDataJSON(templateDataJSON string) (any, error) {
-	if strings.TrimSpace(templateDataJSON) == "" {
-		return nil, nil
-	}
-
-	var templateData map[string]interface{}
-	if err := json.Unmarshal([]byte(templateDataJSON), &templateData); err != nil {
-		return nil, fmt.Errorf("unmarshal templateDataJSON failed: %w", err)
-	}
-
-	return templateData, nil
 }

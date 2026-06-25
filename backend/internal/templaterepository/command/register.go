@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
+	templatecatalogueintegration "digital-contracting-service/gen/template_catalogue_integration"
 	"digital-contracting-service/internal/base/datatype"
 	"digital-contracting-service/internal/base/datatype/componenttype"
 	"digital-contracting-service/internal/base/datatype/userrole"
 	"digital-contracting-service/internal/base/event"
+	"digital-contracting-service/internal/fcasset"
 	fcclient "digital-contracting-service/internal/templatecatalogueintegration/client"
 	templatequery "digital-contracting-service/internal/templatecatalogueintegration/query/template"
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
@@ -66,14 +69,19 @@ func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) error {
 		return fcclient.ErrTemplateNotFoundInFederatedCatalogue
 	}
 
-	templateData, err := templateDataFromAny(fcTemplate.TemplateData)
+	templateDataMap, err := fcasset.FetchDocument(ctx, cmd.DID)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not fetch remote template data: %w", err)
 	}
 
-	templateTypeValue := ""
-	if fcTemplate.TemplateType != nil {
-		templateTypeValue = *fcTemplate.TemplateType
+	templateData, err := datatype.NewJSON(templateDataMap)
+	if err != nil {
+		return fmt.Errorf("marshal template data failed: %w", err)
+	}
+
+	templateTypeValue := resolveTemplateType(fcTemplate, templateDataMap)
+	if templateTypeValue == "" {
+		return fmt.Errorf("template type is missing from Federated Catalogue entry")
 	}
 	templateType, err := contracttemplatetype.NewContractTemplateType(templateTypeValue)
 	if err != nil {
@@ -106,7 +114,7 @@ func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) error {
 		Name:           fcTemplate.Name,
 		Description:    fcTemplate.Description,
 		CreatedBy:      cmd.RegisteredBy,
-		TemplateData:   templateData,
+		TemplateData:   &templateData,
 	})
 	if err != nil {
 		return fmt.Errorf("could not create registered contract template: %w", err)
@@ -118,7 +126,7 @@ func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) error {
 		UpdatedAt:     time.Now().UTC(),
 		Name:          fcTemplate.Name,
 		Description:   fcTemplate.Description,
-		TemplateData:  templateData,
+		TemplateData:  &templateData,
 		SourceDID:     cmd.DID,
 		SourceVersion: cmd.Version,
 		OccurredAt:    time.Now().UTC(),
@@ -133,20 +141,14 @@ func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) error {
 	return tx.Commit()
 }
 
-func templateDataFromAny(raw any) (*datatype.JSON, error) {
-	if raw == nil {
-		return nil, errors.New("template data is missing from Federated Catalogue")
+func resolveTemplateType(fcTemplate *templatecatalogueintegration.TemplateCatalogueRetrieveByIDResponse, templateData map[string]any) string {
+	if fcTemplate.TemplateType != nil && strings.TrimSpace(*fcTemplate.TemplateType) != "" {
+		return *fcTemplate.TemplateType
 	}
-
-	templateDataMap, ok := raw.(map[string]interface{})
-	if !ok {
-		return nil, errors.New("invalid template data format from Federated Catalogue")
+	if metadata, ok := templateData["dcs:metadata"].(map[string]any); ok {
+		if value, ok := metadata["dcs:templateType"].(string); ok {
+			return value
+		}
 	}
-
-	templateData, err := datatype.NewJSON(templateDataMap)
-	if err != nil {
-		return nil, fmt.Errorf("marshal template data failed: %w", err)
-	}
-
-	return &templateData, nil
+	return ""
 }
