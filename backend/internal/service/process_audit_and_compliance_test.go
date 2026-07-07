@@ -7,6 +7,7 @@ import (
 	"time"
 
 	processauditandcompliance "digital-contracting-service/gen/process_audit_and_compliance"
+	"digital-contracting-service/internal/base/datatype"
 	"digital-contracting-service/internal/base/datatype/componenttype"
 )
 
@@ -76,6 +77,95 @@ func TestResolveAuditScopeMapsUIScopes(t *testing.T) {
 				t.Fatalf("includeArchiveTrail = %t, want %t", got.includeArchiveTrail, tt.archive)
 			}
 		})
+	}
+}
+
+func TestAuditResponsesFromHistoriesKeepsVisibleWorkflowEvents(t *testing.T) {
+	did := "did:example:contract:1"
+	entries := [][]datatype.AuditLogEntry{{
+		{ID: 1, Component: componenttype.ContractWorkflowEngine.String(), EventType: "CREATE_CONTRACT", EventData: json.RawMessage(`{"created_by":"alice"}`), DID: &did, CreatedAt: time.Date(2026, 7, 7, 10, 0, 0, 0, time.UTC)},
+		{ID: 2, Component: componenttype.ContractWorkflowEngine.String(), EventType: "RETRIEVE_CONTRACT", EventData: json.RawMessage(`{"retrieved_by":"bob"}`), DID: &did, CreatedAt: time.Date(2026, 7, 7, 10, 5, 0, 0, time.UTC)},
+	}}
+
+	responses := auditResponsesFromHistories(componenttype.ContractWorkflowEngine, entries)
+	if len(responses) != 1 {
+		t.Fatalf("responses len = %d, want 1", len(responses))
+	}
+	if responses[0].Did != did {
+		t.Fatalf("response DID = %q, want %q", responses[0].Did, did)
+	}
+	if len(responses[0].AuditTrail) != 1 {
+		t.Fatalf("audit trail len = %d, want only visible workflow events", len(responses[0].AuditTrail))
+	}
+	if responses[0].AuditTrail[0].EventType != "CREATE_CONTRACT" {
+		t.Fatalf("event type = %q, want CREATE_CONTRACT", responses[0].AuditTrail[0].EventType)
+	}
+}
+
+func TestMergeAuditResponsesWithDIDHistoriesAddsContractContentFindings(t *testing.T) {
+	did := "did:example:contract:merge"
+	createdData := json.RawMessage(`{"created_by":"alice"}`)
+	findingData := json.RawMessage(`{"ruleId":"FACIS-CONTRACT-POLICY-003","severity":"error","message":"availability too low","requirement":"availability >= 99.9"}`)
+	duplicateFinding := datatype.AuditLogEntry{ID: -3000000, Component: componenttype.ContractWorkflowEngine.String(), EventType: "CONTRACT_CONTENT_POLICY_AUDIT_FINDING", EventData: findingData, DID: &did, CreatedAt: time.Date(2026, 7, 7, 10, 5, 0, 0, time.UTC)}
+	duplicateFindingWithDifferentID := duplicateFinding
+	duplicateFindingWithDifferentID.ID = -3000001
+	resources := []*processauditandcompliance.PACAuditResponse{{
+		Did:       did,
+		Component: componenttype.ContractWorkflowEngine.String(),
+		CreatedAt: "2026-07-07T10:00:00Z",
+		AuditTrail: []*processauditandcompliance.PACResourceAuditTrailEntry{{
+			ID: 1, Component: componenttype.ContractWorkflowEngine.String(), EventType: "CREATE_CONTRACT", EventData: createdData, Did: &did, CreatedAt: "2026-07-07T10:00:00Z",
+		}},
+	}}
+
+	merged := mergeAuditResponsesWithDIDHistories(resources, componenttype.ContractWorkflowEngine, map[string][]datatype.AuditLogEntry{
+		did: {
+			duplicateFinding,
+			duplicateFindingWithDifferentID,
+		},
+		"did:example:empty": {},
+	})
+
+	if len(merged) != 1 {
+		t.Fatalf("merged resources len = %d, want 1", len(merged))
+	}
+	if merged[0].Did != did {
+		t.Fatalf("merged DID = %q, want %q", merged[0].Did, did)
+	}
+	if len(merged[0].AuditTrail) != 2 {
+		t.Fatalf("audit trail len = %d, want lifecycle event plus one deduplicated content finding", len(merged[0].AuditTrail))
+	}
+	if merged[0].AuditTrail[1].EventType != "CONTRACT_CONTENT_POLICY_AUDIT_FINDING" {
+		t.Fatalf("content finding event missing: %+v", merged[0].AuditTrail)
+	}
+	if merged[0].CreatedAt != "2026-07-07T10:05:00Z" {
+		t.Fatalf("createdAt = %q, want latest content timestamp", merged[0].CreatedAt)
+	}
+
+	report := buildAuditReport("CONTRACT", did, "auditor", time.Date(2026, 7, 7, 11, 0, 0, 0, time.UTC), merged)
+	if report.Summary.TotalEvents != 1 || report.Summary.TotalChecks != 1 || report.Summary.Failed != 1 {
+		t.Fatalf("unexpected report summary: %+v", report.Summary)
+	}
+	if len(report.Findings) != 1 || report.Findings[0].RuleID != "FACIS-CONTRACT-POLICY-003" {
+		t.Fatalf("rule ID was not preserved in report findings: %+v", report.Findings)
+	}
+}
+
+func TestMergeAuditResponsesWithDIDHistoriesCreatesContractContentResource(t *testing.T) {
+	did := "did:example:contract:content-only"
+	findingData := json.RawMessage(`{"ruleId":"FACIS-CONTRACT-POLICY-003","severity":"passed","message":"availability ok"}`)
+	merged := mergeAuditResponsesWithDIDHistories(nil, componenttype.ContractWorkflowEngine, map[string][]datatype.AuditLogEntry{
+		"": {{ID: -3000000, Component: componenttype.ContractWorkflowEngine.String(), EventType: "CONTRACT_CONTENT_POLICY_AUDIT_FINDING", EventData: findingData, DID: &did, CreatedAt: time.Date(2026, 7, 7, 10, 5, 0, 0, time.UTC)}},
+	})
+
+	if len(merged) != 1 {
+		t.Fatalf("merged resources len = %d, want 1", len(merged))
+	}
+	if merged[0].Did != did {
+		t.Fatalf("resource DID = %q, want entry DID %q", merged[0].Did, did)
+	}
+	if len(merged[0].AuditTrail) != 1 {
+		t.Fatalf("audit trail len = %d, want 1", len(merged[0].AuditTrail))
 	}
 }
 
@@ -213,5 +303,48 @@ func TestValidateAuditScopeDependencies(t *testing.T) {
 	}
 	if err := service.validateAuditScopeDependencies(auditScopeConfig{component: componenttype.SignatureManagement}); err != nil {
 		t.Fatalf("validateAuditScopeDependencies returned error for scope without dependency requirement: %v", err)
+	}
+}
+
+func TestBuildPACMFindingsSignatureSkipped(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	run := &processauditandcompliance.PACAuditRun{ID: "pac-run-test", Scope: "SIGNATURE"}
+	findings := buildPACMFindings(run, signatureAuditScopeConfig(), now)
+	if len(findings) != 1 {
+		t.Fatalf("signature findings len = %d, want 1", len(findings))
+	}
+	if findings[0].Status != "SKIPPED" {
+		t.Fatalf("signature status = %s, want SKIPPED", findings[0].Status)
+	}
+	if !strings.Contains(findings[0].Message, "signing is not implemented yet") {
+		t.Fatalf("signature skip reason missing: %s", findings[0].Message)
+	}
+}
+
+func TestBuildAuditReportFromRunIgnoresPreviousReportGeneratedEvents(t *testing.T) {
+	created := "2026-07-07T12:00:00Z"
+	completed := created
+	run := &processauditandcompliance.PACAuditRun{
+		ID:           "pac-run-test",
+		Scope:        "CONTRACT",
+		Status:       "COMPLETED",
+		ResultStatus: "COMPLETED",
+		CreatedAt:    created,
+		StartedAt:    created,
+		CompletedAt:  &completed,
+		AuditedBy:    "auditor",
+		Findings: []*processauditandcompliance.PACAuditFinding{{
+			ID: "finding-1", AuditRunID: "pac-run-test", Scope: "CONTRACT", Check: "contract existence", Status: "PASS", Title: "Contract existence", Message: "ok", Component: componenttype.ContractWorkflowEngine.String(), Evidence: map[string]any{"source": "test"}, CreatedAt: created,
+		}},
+		Events: []*processauditandcompliance.PACAuditEvent{{EventType: "AuditRunStarted", Message: "started", CreatedAt: created}},
+	}
+	first := buildAuditReportFromRun(run, "", "auditor", time.Date(2026, 7, 7, 12, 1, 0, 0, time.UTC))
+	run.Events = append(run.Events, &processauditandcompliance.PACAuditEvent{EventType: "AuditReportGenerated", Message: "generated", CreatedAt: created})
+	second := buildAuditReportFromRun(run, "", "auditor", time.Date(2026, 7, 7, 12, 2, 0, 0, time.UTC))
+	if first.Summary != second.Summary {
+		t.Fatalf("summary changed after report event: first=%+v second=%+v", first.Summary, second.Summary)
+	}
+	if second.AuditRunID != run.ID || second.RunID != run.ID {
+		t.Fatalf("report does not identify audit run: %+v", second)
 	}
 }

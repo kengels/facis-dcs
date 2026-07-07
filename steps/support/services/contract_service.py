@@ -66,6 +66,10 @@ class ContractService:
         }
 
     @staticmethod
+    def _contract_create_payload(template_did: str) -> dict:
+        return {"template_did": template_did}
+
+    @staticmethod
     def _create_approved_template_for_contract(context):
         creator_h = AuthService.get_headers_for_roles(["Template Creator"])
         create_resp = post_json(
@@ -134,7 +138,12 @@ class ContractService:
     def _create_contract_in_draft(context, contract_name: str):
         t_did = ContractService._create_approved_template_for_contract(context)
         creator_h = AuthService.get_headers_for_roles(["Contract Creator"])
-        create_resp = post_json(context, contract_create_url(context), {"did": t_did}, headers=creator_h)
+        create_resp = post_json(
+            context,
+            contract_create_url(context),
+            ContractService._contract_create_payload(t_did),
+            headers=creator_h,
+        )
         assert create_resp.status_code == 200, create_resp.text
         c_did = create_resp.json().get("did")
         retrieve_resp = get_with_headers(context, contract_retrieve_by_id_url(context, c_did), headers=creator_h)
@@ -152,7 +161,12 @@ class ContractService:
     def _create_contract_in_negotiation(context, contract_name: str):
         t_did = ContractService._create_approved_template_for_contract(context)
         creator_h = AuthService.get_headers_for_roles(["Contract Creator"])
-        create_resp = post_json(context, contract_create_url(context), {"did": t_did}, headers=creator_h)
+        create_resp = post_json(
+            context,
+            contract_create_url(context),
+            ContractService._contract_create_payload(t_did),
+            headers=creator_h,
+        )
         assert create_resp.status_code == 200, create_resp.text
         c_did = create_resp.json().get("did")
 

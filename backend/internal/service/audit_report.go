@@ -18,6 +18,8 @@ import (
 
 type auditReport struct {
 	ReportID    string                `json:"reportId"`
+	AuditRunID  string                `json:"auditRunId"`
+	RunID       string                `json:"runId"`
 	Scope       string                `json:"scope"`
 	GeneratedAt string                `json:"generatedAt"`
 	GeneratedBy string                `json:"generatedBy"`
@@ -77,6 +79,8 @@ type auditReportFinding struct {
 
 type auditReportDownload struct {
 	ReportID    string             `json:"reportId"`
+	AuditRunID  string             `json:"auditRunId"`
+	RunID       string             `json:"runId"`
 	Scope       string             `json:"scope"`
 	Format      string             `json:"format"`
 	ContentType string             `json:"contentType"`
@@ -453,6 +457,8 @@ func reportDownloadEnvelope(report auditReport, format string, content []byte, c
 	}
 	return auditReportDownload{
 		ReportID:    report.ReportID,
+		AuditRunID:  report.AuditRunID,
+		RunID:       report.RunID,
 		Scope:       report.Scope,
 		Format:      format,
 		ContentType: contentType,

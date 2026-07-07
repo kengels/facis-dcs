@@ -157,7 +157,7 @@ func TestAuditContractContentLoadsDefaultPolicyDocument(t *testing.T) {
 	require.NotEmpty(t, policy.SHACLFiles)
 	require.NotEmpty(t, policy.SHACLShapes)
 	require.NotEmpty(t, findings)
-	require.Contains(t, policyFindingRuleIDs(findings), "dcs:CanonicalContractShape-PROP-002")
+	require.Contains(t, policyFindingRuleIDs(findings), "dcs:ContractShape-PROP-002")
 	require.True(t, hasFindingSeverity(findings, "FACIS-CONTRACT-POLICY-003", "info"))
 }
 

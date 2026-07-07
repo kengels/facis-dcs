@@ -253,14 +253,20 @@ def step_when_generate_contract_from_template(context, name):
     )
     assert template_did, f"No approved template DID found for '{name}'"
     context.requests_response = post_json(
-        context, contract_create_url(context), {"did": template_did}
+        context,
+        contract_create_url(context),
+        ContractService._contract_create_payload(template_did),
     )
 
 
 @when('I attempt to generate a contract from template "{template_name}"')
 def step_when_attempt_generate_contract(context, template_name):
     template_did = (getattr(context, "template_dids", None) or {}).get(template_name, "did:example:missing")
-    context.requests_response = post_json(context, contract_create_url(context), {"did": template_did})
+    context.requests_response = post_json(
+        context,
+        contract_create_url(context),
+        ContractService._contract_create_payload(template_did),
+    )
 
 
 @when('I add comment "{comment}" to clause "{clause}"')

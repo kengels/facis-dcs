@@ -40,6 +40,52 @@ var PACAuditResponse = Type("PACAuditResponse", func() {
 	Required("did", "component", "created_at", "audit_trail")
 })
 
+var PACAuditFinding = Type("PACAuditFinding", func() {
+	Description("Stored PACM audit finding")
+
+	Attribute("id", String, "Stable finding identifier")
+	Attribute("auditRunId", String, "AuditRun identifier")
+	Attribute("scope", String, "Audit scope")
+	Attribute("check", String, "Technical check name")
+	Attribute("status", String, "Finding status: PASS, WARNING, FAIL, SKIPPED")
+	Attribute("title", String, "Finding title")
+	Attribute("message", String, "Finding message")
+	Attribute("component", String, "Audited component")
+	Attribute("did", String, "Audited resource DID")
+	Attribute("evidence", Any, "Evidence backing the finding")
+	Attribute("createdAt", String, "Creation timestamp")
+
+	Required("id", "auditRunId", "scope", "check", "status", "title", "message", "component", "evidence", "createdAt")
+})
+
+var PACAuditEvent = Type("PACAuditEvent", func() {
+	Description("Stored PACM audit event")
+
+	Attribute("eventType", String, "PACM audit event type")
+	Attribute("message", String, "Event message")
+	Attribute("createdAt", String, "Event timestamp")
+
+	Required("eventType", "message", "createdAt")
+})
+
+var PACAuditRun = Type("PACAuditRun", func() {
+	Description("Stored synchronous PACM AuditRun")
+
+	Attribute("id", String, "Stable AuditRun identifier")
+	Attribute("scope", String, "Audit scope")
+	Attribute("status", String, "AuditRun status: PENDING, RUNNING, COMPLETED, FAILED")
+	Attribute("resultStatus", String, "Finished AuditRun result status")
+	Attribute("createdAt", String, "Creation timestamp")
+	Attribute("startedAt", String, "Start timestamp")
+	Attribute("completedAt", String, "Completion timestamp")
+	Attribute("auditedBy", String, "Participant that started the audit")
+	Attribute("findings", ArrayOfRequired(PACAuditFinding), "Audit findings")
+	Attribute("events", ArrayOfRequired(PACAuditEvent), "Audit lifecycle events")
+	Attribute("resources", ArrayOfRequired(PACAuditResponse), "Legacy resource audit trail resources")
+
+	Required("id", "scope", "status", "resultStatus", "createdAt", "startedAt", "auditedBy", "findings")
+})
+
 // Process Audit & Compliance Management Service  (/pac/...)
 var _ = Service("ProcessAuditAndCompliance", func() {
 	Description("Process Audit & Compliance Management APIs (/pac/...)")
@@ -56,7 +102,7 @@ var _ = Service("ProcessAuditAndCompliance", func() {
 		})
 
 		Payload(PACAuditRequest)
-		Result(ArrayOfRequired(PACAuditResponse))
+		Result(PACAuditRun)
 
 		Error("bad_request", ErrorResult, "Bad request")
 		Error("internal_error", ErrorResult, "Internal server error")
@@ -77,18 +123,25 @@ var _ = Service("ProcessAuditAndCompliance", func() {
 		Security(JWTAuth, func() {
 			Scope("Auditor")
 		})
+		Error("bad_request", ErrorResult, "Bad request")
+
 		Payload(func() {
 			Token("token", String, "JWT token")
+			Attribute("auditRunId", String, "Stored AuditRun identifier")
 			Attribute("scope", String, "Scope that should be reported")
 			Attribute("format", String, "Report format: json, csv, or pdf")
 			Attribute("did", String, "Optional resource DID filter")
+			Attribute("create", String, "Command-guard flag; GET queries must not create report data")
 		})
 		HTTP(func() {
 			GET("/pac/report")
+			Param("auditRunId")
 			Param("scope")
 			Param("format")
 			Param("did")
+			Param("create")
 			Response(StatusOK)
+			Response("bad_request", StatusBadRequest)
 		})
 		Result(Any)
 	})
@@ -99,13 +152,26 @@ var _ = Service("ProcessAuditAndCompliance", func() {
 		Meta("dcs:ui", "Non-Compliance Investigation")
 		Meta("dcs:pacm:components", "")
 		Security(JWTAuth, func() {
+			Scope("Auditor")
 			Scope("Compliance Officer")
 		})
 		Payload(func() {
 			Token("token", String, "JWT token")
+			Attribute("scope", String, "Audit scope filter")
+			Attribute("status", String, "AuditRun status filter")
+			Attribute("from", String, "Inclusive created-at date/time lower bound")
+			Attribute("to", String, "Inclusive created-at date/time upper bound")
+			Attribute("auditRunId", String, "AuditRun identifier filter")
+			Attribute("includeEvents", String, "Include stored lifecycle events")
 		})
 		HTTP(func() {
 			GET("/pac/monitor")
+			Param("scope")
+			Param("status")
+			Param("from")
+			Param("to")
+			Param("auditRunId")
+			Param("includeEvents")
 			Response(StatusOK)
 		})
 		Result(Any)
@@ -117,14 +183,23 @@ var _ = Service("ProcessAuditAndCompliance", func() {
 		Meta("dcs:ui", "Non-Compliance Investigation")
 		Meta("dcs:pacm:components", "")
 		Security(JWTAuth, func() {
+			Scope("Auditor")
 			Scope("Compliance Officer")
 		})
+		Error("bad_request", ErrorResult, "Bad request")
+		Error("internal_error", ErrorResult, "Internal server error")
+
 		Payload(func() {
 			Token("token", String, "JWT token")
+			Attribute("auditRunId", String, "Stored AuditRun identifier")
+			Attribute("format", String, "Report format: json, csv, or pdf")
+			Required("auditRunId")
 		})
 		HTTP(func() {
 			POST("/pac/report")
 			Response(StatusOK)
+			Response("bad_request", StatusBadRequest)
+			Response("internal_error", StatusInternalServerError)
 		})
 		Result(Any)
 	})

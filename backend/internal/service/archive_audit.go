@@ -2,12 +2,15 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"time"
 
 	processauditandcompliance "digital-contracting-service/gen/process_audit_and_compliance"
 	"digital-contracting-service/internal/base/datatype"
 	"digital-contracting-service/internal/base/datatype/componenttype"
+
+	"goa.design/clue/log"
 )
 
 func (s *processAuditAndCompliancesrvc) auditArchiveTrailEntries(ctx context.Context) (map[string][]*processauditandcompliance.PACResourceAuditTrailEntry, error) {
@@ -16,7 +19,12 @@ func (s *processAuditAndCompliancesrvc) auditArchiveTrailEntries(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			log.Printf(ctx, "rollback failed: %v", err)
+		}
+	}()
 
 	entries, err := s.CRepo.ReadArchiveEntries(ctx, tx)
 	if err != nil {

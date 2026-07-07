@@ -1,6 +1,17 @@
 import http from '@/api/http'
-import type { AuditReportRequest, AuditRequest, AuditScope } from '@/models/requests/auditing-request'
-import type { AuditFinding, AuditReportResponse, AuditResponse } from '@/models/responses/auditing-response'
+import type {
+  AuditReportRequest,
+  AuditRequest,
+  AuditRunListRequest,
+  AuditScope,
+} from '@/models/requests/auditing-request'
+import type {
+  AuditFinding,
+  AuditReportResponse,
+  AuditResponse,
+  AuditRun,
+  AuditRunResource,
+} from '@/models/responses/auditing-response'
 import type { AuditingService } from '@/models/services/auditing-service'
 import { contractAuditEventDisplayText } from '@/utils/contract-audit-event-display'
 
@@ -16,7 +27,30 @@ interface RawAuditTrailEntry {
   createdAt?: string
 }
 
-interface RawPACAuditResource {
+interface RawPACAuditRun {
+  id?: string
+  auditRunId?: string
+  runId?: string
+  scope?: string
+  status?: string
+  resultStatus?: string
+  createdAt?: string
+  startedAt?: string
+  completedAt?: string
+  auditedBy?: string
+  findings?: AuditFinding[]
+  events?: { eventType: string; message: string; createdAt: string }[]
+  resources?: RawPACAuditResource[]
+}
+
+interface RawPACAuditRunList {
+  auditRuns?: RawPACAuditRun[]
+  audit_runs?: RawPACAuditRun[]
+  runs?: RawPACAuditRun[]
+  items?: RawPACAuditRun[]
+}
+
+interface RawPACAuditResource extends AuditRunResource {
   id?: number | string
   component?: string
   event_type?: string
@@ -28,12 +62,136 @@ interface RawPACAuditResource {
   auditTrail?: RawAuditTrailEntry[]
 }
 
-const normalizeAuditResponse = (data: AuditResponse | string, scope: AuditScope): AuditResponse => {
+const latestAuditRunIds: Partial<Record<AuditScope, string>> = {}
+
+function normalizeScopeForRequest(scope?: string): AuditScope | undefined {
+  switch (scope?.trim().toUpperCase()) {
+    case 'TEMPLATE':
+    case 'TEMPLATES':
+      return 'templates'
+    case 'CONTRACT':
+    case 'CONTRACTS':
+      return 'contracts'
+    case 'SIGNATURE':
+    case 'SIGNATURES':
+      return 'signatures'
+    case 'ARCHIVE':
+    case 'ARCHIVES':
+      return 'archive'
+    default:
+      return undefined
+  }
+}
+
+function normalizeRun(data: RawPACAuditRun): AuditRun {
+  const scope = normalizeScopeForRequest(data.scope) ?? 'contracts'
+  const id = data.id ?? data.auditRunId ?? data.runId ?? ''
+  if (id) latestAuditRunIds[scope] = id
+  return {
+    id,
+    scope: data.scope ?? scope,
+    status: data.status ?? '',
+    resultStatus: data.resultStatus ?? data.status ?? '',
+    createdAt: data.createdAt ?? new Date().toISOString(),
+    startedAt: data.startedAt ?? data.createdAt ?? new Date().toISOString(),
+    completedAt: data.completedAt,
+    auditedBy: data.auditedBy ?? '',
+    findings: Array.isArray(data.findings)
+      ? data.findings.map((finding) => normalizeStoredFinding(finding, id, scope))
+      : [],
+    events: Array.isArray(data.events) ? data.events : [],
+    resources: Array.isArray(data.resources) ? data.resources : [],
+  }
+}
+
+function extractAuditRuns(data: unknown): AuditRun[] {
+  if (Array.isArray(data)) {
+    return data.filter(isObjectRecord).map((item) => normalizeRun(item as RawPACAuditRun))
+  }
+  if (!isObjectRecord(data)) {
+    return []
+  }
+  const list = data as RawPACAuditRunList
+  const runs = list.auditRuns ?? list.audit_runs ?? list.runs ?? list.items
+  if (Array.isArray(runs)) {
+    return runs.map((run) => normalizeRun(run))
+  }
+  if (data.id || data.auditRunId || data.runId) {
+    return [normalizeRun(data)]
+  }
+  return []
+}
+
+const normalizeAuditResponse = (data: AuditResponse | AuditRun | string, scope: AuditScope): AuditResponse => {
+  if (isObjectRecord(data)) {
+    const run = data as RawPACAuditRun
+    const runId = run.id ?? run.auditRunId ?? run.runId
+    if (runId) latestAuditRunIds[scope] = runId
+    const findings = Array.isArray(run.findings) ? run.findings : []
+    const resources = Array.isArray(run.resources)
+      ? run.resources.flatMap((resource, index) =>
+          normalizeAuditItem(resource as AuditFinding & RawPACAuditResource, index, scope),
+        )
+      : []
+    const events = auditRunEventsToFindings(run.events, runId, scope)
+    return [...findings.map((finding) => normalizeStoredFinding(finding, runId, scope)), ...resources, ...events]
+  }
   if (!Array.isArray(data)) {
     return []
   }
 
   return data.flatMap((item, index) => normalizeAuditItem(item as AuditFinding & RawPACAuditResource, index, scope))
+}
+
+function normalizeStoredFinding(finding: AuditFinding, runId: string | undefined, scope: AuditScope): AuditFinding {
+  const evidence = finding.evidence
+  return {
+    ...finding,
+    id: finding.id,
+    auditRunId: finding.auditRunId ?? runId,
+    category: finding.category ?? 'compliance_check',
+    title: finding.title ?? finding.check ?? 'Audit check',
+    description: finding.description ?? finding.message ?? '',
+    component: finding.component ?? auditComponentLabel(scope),
+    status: finding.status,
+    created_at:
+      finding.created_at ?? (finding as unknown as { createdAt?: string }).createdAt ?? new Date().toISOString(),
+    details: finding.details ?? {
+      eventType: 'AuditCheckCompleted',
+      eventData: {
+        ruleId: finding.check,
+        message: finding.message,
+        severity: finding.status,
+        evidence,
+        auditRunId: finding.auditRunId ?? runId,
+      },
+    },
+  }
+}
+
+function auditRunEventsToFindings(
+  events: RawPACAuditRun['events'] | undefined,
+  runId: string | undefined,
+  scope: AuditScope,
+): AuditFinding[] {
+  return Array.isArray(events)
+    ? events.map(
+        (event, index): AuditFinding => ({
+          id: `${runId ?? scope}-audit-run-event-${index}`,
+          auditRunId: runId,
+          category: 'compliance_check',
+          title: event.eventType,
+          description: event.message,
+          component: 'PROCESS_AUDIT_AND_COMPLIANCE',
+          status: 'PASS',
+          created_at: event.createdAt,
+          details: {
+            eventType: event.eventType,
+            eventData: { message: event.message, auditRunId: runId, auditRunEvent: true },
+          },
+        }),
+      )
+    : []
 }
 
 function normalizeAuditItem(
@@ -212,11 +370,28 @@ function auditComponentLabel(scope: AuditScope): string {
 export const auditingService: AuditingService = {
   async audit(request: AuditRequest) {
     return http
-      .post<AuditResponse | string>('/pac/audit', request)
+      .post<AuditResponse | AuditRun | string>('/pac/audit', request)
       .then((res) => normalizeAuditResponse(res.data, request.scope))
   },
 
+  async listRuns(request: AuditRunListRequest = {}) {
+    return http
+      .get<unknown>('/pac/monitor', {
+        params: {
+          ...request,
+          includeEvents: request.includeEvents ? 'true' : undefined,
+        },
+      })
+      .then((res) => extractAuditRuns(res.data))
+  },
+
   async report(request: AuditReportRequest) {
+    const auditRunId = request.auditRunId ?? latestAuditRunIds[request.scope]
+    if (auditRunId) {
+      return http
+        .post<AuditReportResponse>('/pac/report', { auditRunId, format: request.format ?? 'json' })
+        .then((res) => res.data)
+    }
     return http.get<AuditReportResponse>('/pac/report', { params: request }).then((res) => res.data)
   },
 }

@@ -11,7 +11,52 @@ export interface AuditFinding {
   object_name?: string
   object_type?: string
   created_at: string
+  check?: string
+  message?: string
+  evidence?: unknown
+  auditRunId?: string
   details?: unknown
+}
+
+export interface AuditTrailEntry {
+  id?: number | string
+  component?: string
+  event_type?: string
+  eventType?: string
+  event_data?: unknown
+  eventData?: unknown
+  did?: string
+  created_at?: string
+  createdAt?: string
+}
+
+export interface AuditRunResource {
+  did?: string
+  component?: string
+  created_at?: string
+  createdAt?: string
+  audit_trail?: AuditTrailEntry[]
+  auditTrail?: AuditTrailEntry[]
+}
+
+export interface AuditRunEvent {
+  eventType: string
+  message: string
+  createdAt: string
+}
+
+export interface AuditRun {
+  id: string
+  scope: string
+  status: string
+  resultStatus: string
+  createdAt: string
+  startedAt: string
+  completedAt?: string
+  auditedBy: string
+  findings: AuditFinding[]
+  events?: AuditRunEvent[]
+  resources?: AuditRunResource[]
 }
 
 export type AuditResponse = AuditFinding[]
@@ -63,6 +108,8 @@ export interface AuditReportFinding {
 
 export interface AuditReport {
   reportId: string
+  auditRunId?: string
+  runId?: string
   scope: string
   generatedAt: string
   generatedBy: string
@@ -77,6 +124,8 @@ export interface AuditReport {
 
 export interface AuditReportDownload {
   reportId: string
+  auditRunId?: string
+  runId?: string
   scope: string
   format: 'csv' | 'pdf'
   contentType: string

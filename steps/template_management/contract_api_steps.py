@@ -28,7 +28,7 @@ def step_when_create_contract_with_template(context, template_name):
     context.requests_response = post_json(
         context,
         contract_create_url(context),
-        {"did": context.template_dids[template_name]},
+        ContractService._contract_create_payload(context.template_dids[template_name]),
     )
 
 
@@ -42,13 +42,15 @@ def step_when_create_contract_with_payload(context):
     context.requests_response = post_json(
         context,
         contract_create_url(context),
-        {"did": template_did},
+        ContractService._contract_create_payload(template_did),
     )
 
 
 @when("the system attempts to create contract via API")
 def step_when_attempt_create_contract(context):
-    payload = {"did": os.getenv("BDD_TEMPLATE_DID_DEFAULT", "did:example:template:missing")}
+    payload = ContractService._contract_create_payload(
+        os.getenv("BDD_TEMPLATE_DID_DEFAULT", "did:example:template:missing")
+    )
     context.requests_response = post_json(context, contract_create_url(context), payload)
 
 
@@ -60,7 +62,7 @@ def step_when_create_contract_from_template(context, template_name):
     context.requests_response = post_json(
         context,
         contract_create_url(context),
-        {"did": context.template_dids[template_name]},
+        ContractService._contract_create_payload(context.template_dids[template_name]),
     )
 
 
@@ -74,7 +76,7 @@ def step_when_attempt_create_contract_from_template(context, template_name):
     context.requests_response = post_json(
         context,
         contract_create_url(context),
-        {"did": template_did or "did:example:template:missing"},
+        ContractService._contract_create_payload(template_did or "did:example:template:missing"),
     )
 
 
@@ -102,7 +104,7 @@ _ENDPOINT_PAYLOADS = {
     "template_reject":        {"did": "did:example:1", "updated_at": "2024-01-01T00:00:00Z", "reason": "test"},
     "template_register":      {"did": "did:example:1", "updated_at": "2024-01-01T00:00:00Z"},
     "template_archive":       {"did": "did:example:1", "updated_at": "2024-01-01T00:00:00Z"},
-    "contract_create":        {"did": "did:example:template:1"},
+    "contract_create":        {"template_did": "did:example:template:1"},
     "contract_update":        {"did": "did:example:1", "updated_at": "2024-01-01T00:00:00Z"},
     "contract_submit":        {"did": "did:example:1", "updated_at": "2024-01-01T00:00:00Z"},
     "contract_negotiate":     {"did": "did:example:1", "updated_at": "2024-01-01T00:00:00Z", "negotiated_by": "test", "change_request": "test"},

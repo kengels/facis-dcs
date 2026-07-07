@@ -3,6 +3,7 @@
 from behave import then, when
 
 from core.utils import is_uuid
+from steps.support.services.contract_service import ContractService
 from steps.support.services.template_service import TemplateService
 from steps.support.api_client import (
     contract_create_url,
@@ -224,7 +225,7 @@ def step_then_no_new_contracts_from_deprecated(context):
     did = body.get("did")
     assert did, f"No DID in archive response: {body}"
     # Attempt to create a contract from the deprecated template — must be rejected.
-    create_resp = post_json(context, contract_create_url(context), {"did": did})
+    create_resp = post_json(context, contract_create_url(context), ContractService._contract_create_payload(did))
     assert create_resp.status_code >= 400, (
         f"Expected contract creation from deprecated template to be rejected, "
         f"got {create_resp.status_code}: {create_resp.text}"

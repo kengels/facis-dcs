@@ -14,8 +14,22 @@ from typing import Any
 import requests
 from behave import given, then, when
 
-from steps.support.api_client import contract_update_url, put_json
+from steps.support.api_client import (
+    contract_create_url,
+    contract_retrieve_by_id_url,
+    contract_update_url,
+    get_with_headers,
+    post_json,
+    put_json,
+    template_approve_url,
+    template_create_url,
+    template_retrieve_by_id_url,
+    template_submit_url,
+    template_verify_url,
+)
 from steps.support.services.contract_service import ContractService
+from steps.support.services.auth_service import AuthService
+from steps.support.services.template_service import TemplateService
 
 
 ALLOWED_SCOPES = {"CONTRACT", "TEMPLATE", "ARCHIVE", "SIGNATURE"}
@@ -154,22 +168,122 @@ def _is_failed_finding(finding: dict[str, Any]) -> bool:
     return _normalize_status(value) == "FAIL"
 
 
-def _contract_content_fixture(did: str, availability: float, structure_violation: bool) -> dict[str, Any]:
+def _contract_content_template_data(did: str) -> dict[str, Any]:
+    return _contract_content_fixture(did, 99.95, False, document_type="dcs:ContractTemplate")
+
+
+def _contract_content_fixture(
+    did: str,
+    availability: float,
+    structure_violation: bool,
+    *,
+    document_type: str = "dcs:Contract",
+) -> dict[str, Any]:
     parties: list[dict[str, Any]] = [
-        {"@type": "dcs:CompanyParty", "role": "supplier", "legalName": "BDD Supplier GmbH"},
-        {"@type": "dcs:CompanyParty", "role": "customer", "legalName": "BDD Customer GmbH"},
+        {"@type": "dcs:CompanyParty", "dcs:role": "supplier", "dcs:legalName": "BDD Supplier GmbH"},
+        {"@type": "dcs:CompanyParty", "dcs:role": "customer", "dcs:legalName": "BDD Customer GmbH"},
     ]
     if structure_violation:
-        parties = [{"@type": "dcs:Organization", "role": "supplier"}]
+        parties = [{"@type": "dcs:Organization", "dcs:role": "supplier"}]
     return {
         "@context": {
             "dcs": "https://w3id.org/facis/dcs/ontology/v1#",
+            "odrl": "http://www.w3.org/ns/odrl/2/",
             "xsd": "http://www.w3.org/2001/XMLSchema#",
         },
         "@id": did,
-        "@type": "dcs:Contract",
+        "@type": document_type,
         "dcs:did": did,
         "dcs:contractVersion": 1,
+        "dcs:templateVersion": 1,
+        "dcs:schemaVersion": "v1",
+        "dcs:metadata": {
+            "@type": "dcs:ContractMetadata",
+            "dcs:title": "BDD PACM contract content fixture",
+            "dcs:version": 1,
+        },
+        "dcs:documentStructure": {
+            "@type": "dcs:DocumentStructure",
+            "dcs:blocks": {"@list": [
+                {
+                    "@id": "urn:uuid:bdd-pacm-contract-content-clause",
+                    "@type": "dcs:Clause",
+                    "dcs:blockId": "bdd-pacm-contract-content-clause",
+                    "dcs:text": "Service availability and party data for PACM contract content audits.",
+                    "dcs:content": {"@list": [
+                        "Service availability and party data for PACM contract content audits."
+                    ]},
+                },
+            ]},
+            "dcs:layout": [
+                {
+                    "@id": "urn:uuid:bdd-pacm-contract-content-root",
+                    "dcs:isRoot": True,
+                    "dcs:children": {"@list": [
+                        {"@id": "urn:uuid:bdd-pacm-contract-content-clause"},
+                    ]},
+                },
+            ],
+        },
+        "dcs:contractData": [
+            {
+                "@id": "urn:uuid:bdd-pacm-legal-requirement",
+                "@type": "dcs:DataRequirement",
+                "dcs:conditionId": "condition-legal",
+                "dcs:name": "Legal policy values",
+                "dcs:schemaVersion": "v1",
+                "dcs:fields": [
+                    {
+                        "@id": "urn:uuid:bdd-pacm-field-jurisdiction",
+                        "@type": "dcs:RequirementField",
+                        "dcs:parameterName": "contract.jurisdiction",
+                        "dcs:required": True,
+                    },
+                ],
+            },
+            {
+                "@id": "urn:uuid:bdd-pacm-service-requirement",
+                "@type": "dcs:DataRequirement",
+                "dcs:conditionId": "condition-service",
+                "dcs:name": "Service policy values",
+                "dcs:schemaVersion": "v1",
+                "dcs:fields": [
+                    {
+                        "@id": "urn:uuid:bdd-pacm-field-availability",
+                        "@type": "dcs:RequirementField",
+                        "dcs:parameterName": "service.sla.availability",
+                        "dcs:required": True,
+                    },
+                    {
+                        "@id": "urn:uuid:bdd-pacm-field-response-time",
+                        "@type": "dcs:RequirementField",
+                        "dcs:parameterName": "service.sla.responseTime",
+                        "dcs:required": True,
+                    },
+                    {
+                        "@id": "urn:uuid:bdd-pacm-field-resolution-time",
+                        "@type": "dcs:RequirementField",
+                        "dcs:parameterName": "service.sla.resolutionTime",
+                        "dcs:required": True,
+                    },
+                ],
+            },
+            {
+                "@id": "urn:uuid:bdd-pacm-signature-requirement",
+                "@type": "dcs:DataRequirement",
+                "dcs:conditionId": "condition-signature",
+                "dcs:name": "Signature policy values",
+                "dcs:schemaVersion": "v1",
+                "dcs:fields": [
+                    {
+                        "@id": "urn:uuid:bdd-pacm-field-signature-level",
+                        "@type": "dcs:RequirementField",
+                        "dcs:parameterName": "signature.requiredLevel",
+                        "dcs:required": True,
+                    },
+                ],
+            },
+        ],
         "dcs:party": parties,
         "parties": parties,
         "contract": {"jurisdiction": "DEU"},
@@ -190,8 +304,104 @@ def _contract_content_fixture(did: str, availability: float, structure_violation
     }
 
 
+def _create_contract_content_fixture_draft(context, name: str):
+    fixture_id = re.sub(r"[^A-Za-z0-9._:-]+", "-", name).strip("-").lower() or "contract-content"
+    template_creator_h = AuthService.get_headers_for_roles(["Template Creator"])
+    create_template = post_json(
+        context,
+        template_create_url(context),
+        {
+            "template_type": TemplateService.CONTRACT_TEMPLATE_TYPE,
+            "name": f"BDD PACM Contract Content Template - {name}",
+            "description": "Canonical BDD template for PACM contract content audit fixtures",
+            "template_data": _contract_content_template_data(f"did:example:bdd-pacm-template-{fixture_id}"),
+        },
+        headers=template_creator_h,
+    )
+    assert create_template.status_code == 200, f"Template create failed: {create_template.status_code} {create_template.text}"
+    template_did = create_template.json().get("did")
+    assert template_did, f"Template create response did not include did: {create_template.text}"
+
+    retrieve_template = get_with_headers(context, template_retrieve_by_id_url(context, template_did), headers=template_creator_h)
+    assert retrieve_template.status_code == 200, retrieve_template.text
+    updated_at = retrieve_template.json().get("updated_at")
+
+    submit_template = post_json(
+        context,
+        template_submit_url(context),
+        ContractService._template_submit_payload(context, template_did, updated_at),
+        headers=template_creator_h,
+    )
+    assert submit_template.status_code == 200, f"Template submit failed: {submit_template.status_code} {submit_template.text}"
+
+    template_reviewer_h = AuthService.get_headers_for_roles(["Template Reviewer"])
+    retrieve_template = get_with_headers(context, template_retrieve_by_id_url(context, template_did), headers=template_reviewer_h)
+    assert retrieve_template.status_code == 200, retrieve_template.text
+    updated_at = retrieve_template.json().get("updated_at")
+
+    verify_template = post_json(
+        context,
+        template_verify_url(context),
+        {"did": template_did, "updated_at": updated_at},
+        headers=template_reviewer_h,
+    )
+    assert verify_template.status_code == 200, f"Template verify failed: {verify_template.status_code} {verify_template.text}"
+
+    retrieve_template = get_with_headers(context, template_retrieve_by_id_url(context, template_did), headers=template_reviewer_h)
+    assert retrieve_template.status_code == 200, retrieve_template.text
+    updated_at = retrieve_template.json().get("updated_at")
+
+    recommend_template = post_json(
+        context,
+        template_submit_url(context),
+        ContractService._template_reviewer_submit_payload(context, template_did, updated_at),
+        headers=template_reviewer_h,
+    )
+    assert recommend_template.status_code == 200, (
+        f"Template review submit failed: {recommend_template.status_code} {recommend_template.text}"
+    )
+
+    template_approver_h = AuthService.get_headers_for_roles(["Template Approver"])
+    retrieve_template = get_with_headers(context, template_retrieve_by_id_url(context, template_did), headers=template_approver_h)
+    assert retrieve_template.status_code == 200, retrieve_template.text
+    updated_at = retrieve_template.json().get("updated_at")
+
+    approve_template = post_json(
+        context,
+        template_approve_url(context),
+        {"did": template_did, "updated_at": updated_at},
+        headers=template_approver_h,
+    )
+    assert approve_template.status_code == 200, f"Template approve failed: {approve_template.status_code} {approve_template.text}"
+
+    contract_creator_h = AuthService.get_headers_for_roles(["Contract Creator"])
+    create_contract = post_json(
+        context,
+        contract_create_url(context),
+        ContractService._contract_create_payload(template_did),
+        headers=contract_creator_h,
+    )
+    assert create_contract.status_code == 200, f"Contract create failed: {create_contract.status_code} {create_contract.text}"
+    contract_did = create_contract.json().get("did")
+    assert contract_did, f"Contract create response did not include did: {create_contract.text}"
+
+    retrieve_contract = get_with_headers(
+        context,
+        contract_retrieve_by_id_url(context, contract_did),
+        headers=contract_creator_h,
+    )
+    assert retrieve_contract.status_code == 200, retrieve_contract.text
+
+    ContractService._ensure_store(context, "contract_dids", {})
+    ContractService._ensure_store(context, "contract_updated_at", {})
+    ContractService._ensure_store(context, "contract_seed_headers", {})
+    context.contract_dids[name] = contract_did
+    context.contract_updated_at[name] = retrieve_contract.json().get("updated_at")
+    context.contract_seed_headers[name] = contract_creator_h
+
+
 def _store_contract_content_fixture(context, name: str, *, availability: float, structure_violation: bool):
-    ContractService._create_contract_in_draft(context, name)
+    _create_contract_content_fixture_draft(context, name)
     did, updated_at = ContractService._contract_data(context, name)
     headers = (getattr(context, "contract_seed_headers", {}) or {}).get(name)
     response = put_json(

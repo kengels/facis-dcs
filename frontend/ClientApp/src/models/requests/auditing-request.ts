@@ -6,6 +6,16 @@ export interface AuditRequest {
 }
 
 export interface AuditReportRequest extends AuditRequest {
+  auditRunId?: string
   format?: AuditReportFormat
   did?: string
+}
+
+export interface AuditRunListRequest {
+  scope?: AuditScope
+  status?: string
+  from?: string
+  to?: string
+  auditRunId?: string
+  includeEvents?: boolean
 }
