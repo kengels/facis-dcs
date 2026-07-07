@@ -5,16 +5,230 @@ from __future__ import annotations
 import base64
 import csv
 import io
+import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 import requests
 from behave import given, then, when
 
+from steps.support.api_client import contract_update_url, put_json
+from steps.support.services.contract_service import ContractService
+
 
 ALLOWED_SCOPES = {"CONTRACT", "TEMPLATE", "ARCHIVE", "SIGNATURE"}
 SIGNATURE_SKIP_REASON = "signature validation is not available because signing is not implemented"
+
+CONTRACT_CONTENT_POLICY_MANIFEST = "docs/policies/facis-contract-content-audit-policies.json"
+CONTRACT_CONTENT_POLICY_SET_ID = "facis.dcs.contract.structure-semantics"
+
+
+def _contract_content_policy_manifest() -> dict[str, Any]:
+    path = os.path.join(os.getcwd(), CONTRACT_CONTENT_POLICY_MANIFEST)
+    with open(path, encoding="utf-8") as manifest_file:
+        manifest = json.load(manifest_file)
+    assert isinstance(manifest, dict), f"Contract content policy manifest is not an object: {manifest}"
+    return manifest
+
+
+def _configured_shacl_shape_ids() -> set[str]:
+    manifest = _contract_content_policy_manifest()
+    shape_ids: set[str] = set()
+    for relative_path in manifest.get("shaclShapeFiles", []):
+        path = os.path.join(os.getcwd(), str(relative_path))
+        with open(path, encoding="utf-8") as shape_file:
+            content = shape_file.read()
+        shape_ids.update(re.findall(r"(?m)^([A-Za-z0-9_:-]+)\s*\n\s+a\s+sh:NodeShape\b", content))
+        shape_ids.update(re.findall(r"(?m)^([A-Za-z0-9_:-]+)\s+a\s+sh:NodeShape\b", content))
+    assert shape_ids, f"No SHACL shape IDs found via {CONTRACT_CONTENT_POLICY_MANIFEST}"
+    return shape_ids
+
+
+def _configured_validation_rule_ids() -> set[str]:
+    manifest = _contract_content_policy_manifest()
+    rule_ids: set[str] = set()
+    for relative_path in manifest.get("validationProfiles", []):
+        path = os.path.join(os.getcwd(), str(relative_path))
+        with open(path, encoding="utf-8") as profile_file:
+            content = profile_file.read()
+        rule_ids.update(re.findall(r'facisv:ruleId\s+"([^"]+)"', content))
+    assert rule_ids, f"No validation rule IDs found via {CONTRACT_CONTENT_POLICY_MANIFEST}"
+    return rule_ids
+
+
+def _rule_reference(finding: dict[str, Any]) -> str:
+    value = _field(finding, "ruleId", "rule_id", "ruleReference", "rule_reference", "check", "id")
+    return str(value).strip() if value is not None else ""
+
+
+def _is_configured_shacl_rule(rule_id: str) -> bool:
+    if not rule_id:
+        return False
+    for shape_id in _configured_shacl_shape_ids():
+        if rule_id == shape_id or rule_id.startswith(f"{shape_id}-PROP-"):
+            return True
+    return False
+
+
+def _walk_dicts(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for nested in value.values():
+            yield from _walk_dicts(nested)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk_dicts(item)
+
+
+def _audit_run_candidate_findings(run: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for item in _walk_dicts(run):
+        event_data = _field(item, "eventData", "event_data")
+        if isinstance(event_data, dict):
+            merged = dict(event_data)
+            for source_key, target_key in (
+                ("eventType", "eventType"),
+                ("event_type", "eventType"),
+                ("component", "component"),
+                ("did", "did"),
+            ):
+                value = item.get(source_key)
+                if value is not None and target_key not in merged:
+                    merged[target_key] = value
+            candidates.append(merged)
+        if any(key in item for key in (
+            "ruleId", "rule_id", "policySetId", "policy_set_id", "severity", "requirement", "semanticPath",
+        )):
+            candidates.append(item)
+    return candidates
+
+
+def _finding_did(finding: dict[str, Any]) -> str:
+    value = _field(finding, "did", "resourceDid", "resource_did", "contractDid", "contract_did")
+    return str(value).strip() if value is not None else ""
+
+
+def _matches_contract_target(context, finding: dict[str, Any], contract_name: str | None) -> bool:
+    if not contract_name:
+        return True
+    target_did = (getattr(context, "contract_dids", {}) or {}).get(contract_name, "")
+    finding_did = _finding_did(finding)
+    return not target_did or not finding_did or finding_did == target_did
+
+
+def _is_contract_content_policy_finding(finding: dict[str, Any]) -> bool:
+    policy_set = str(_field(finding, "policySetId", "policy_set_id") or "").strip()
+    if policy_set == CONTRACT_CONTENT_POLICY_SET_ID:
+        return True
+    rule_ref = _rule_reference(finding)
+    if rule_ref in _configured_validation_rule_ids() or _is_configured_shacl_rule(rule_ref):
+        return True
+    text = _finding_text(finding)
+    return "contract-content" in text or "contract content" in text or "shacl" in text
+
+
+def _contract_content_policy_findings(context, contract_name: str | None = None) -> list[dict[str, Any]]:
+    run = _audit_run_body(context)
+    findings = [
+        finding for finding in _audit_run_candidate_findings(run)
+        if _matches_contract_target(context, finding, contract_name) and _is_contract_content_policy_finding(finding)
+    ]
+    if findings:
+        return findings
+    run_id = _field(run, "id", "auditRunId", "audit_run_id", "runId", "run_id")
+    if run_id:
+        detail = _query_audit_run_detail(context, str(run_id))
+        findings = [
+            finding for finding in _audit_run_candidate_findings(detail)
+            if _matches_contract_target(context, finding, contract_name) and _is_contract_content_policy_finding(finding)
+        ]
+    return findings
+
+
+def _is_failed_finding(finding: dict[str, Any]) -> bool:
+    value = _field(finding, "severity", "status", "result", "findingStatus", "finding_status")
+    if value is None:
+        return False
+    return _normalize_status(value) == "FAIL"
+
+
+def _contract_content_fixture(did: str, availability: float, structure_violation: bool) -> dict[str, Any]:
+    parties: list[dict[str, Any]] = [
+        {"@type": "dcs:CompanyParty", "role": "supplier", "legalName": "BDD Supplier GmbH"},
+        {"@type": "dcs:CompanyParty", "role": "customer", "legalName": "BDD Customer GmbH"},
+    ]
+    if structure_violation:
+        parties = [{"@type": "dcs:Organization", "role": "supplier"}]
+    return {
+        "@context": {
+            "dcs": "https://w3id.org/facis/dcs/ontology/v1#",
+            "xsd": "http://www.w3.org/2001/XMLSchema#",
+        },
+        "@id": did,
+        "@type": "dcs:Contract",
+        "dcs:did": did,
+        "dcs:contractVersion": 1,
+        "dcs:party": parties,
+        "parties": parties,
+        "contract": {"jurisdiction": "DEU"},
+        "service": {
+            "sla": {
+                "availability": availability,
+                "responseTime": 10,
+                "resolutionTime": 120,
+            }
+        },
+        "semanticConditionValues": [
+            {"conditionId": "condition-legal", "parameterName": "contract.jurisdiction", "parameterValue": "DEU"},
+            {"conditionId": "condition-service", "parameterName": "service.sla.availability", "parameterValue": availability},
+            {"conditionId": "condition-service", "parameterName": "service.sla.responseTime", "parameterValue": 10},
+            {"conditionId": "condition-service", "parameterName": "service.sla.resolutionTime", "parameterValue": 120},
+            {"conditionId": "condition-signature", "parameterName": "signature.requiredLevel", "parameterValue": "AES"},
+        ],
+    }
+
+
+def _store_contract_content_fixture(context, name: str, *, availability: float, structure_violation: bool):
+    ContractService._create_contract_in_draft(context, name)
+    did, updated_at = ContractService._contract_data(context, name)
+    headers = (getattr(context, "contract_seed_headers", {}) or {}).get(name)
+    response = put_json(
+        context,
+        contract_update_url(context),
+        {
+            "did": did,
+            "updated_at": updated_at,
+            "contract_data": _contract_content_fixture(did, availability, structure_violation),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, f"Could not store contract content fixture: {response.status_code} {response.text}"
+    ContractService._refresh_contract(context, name)
+
+
+def _report_object(report: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(_field(report, "findings"), list):
+        return report
+    content = _field(report, "content", "data")
+    if isinstance(content, str) and content:
+        text = _decode_report_payload(report)
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            return report
+        if isinstance(parsed, dict):
+            return parsed
+    return report
+
+
+def _report_policy_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
+    report = _report_object(report)
+    raw = _field(report, "findings", "auditFindings", "audit_findings")
+    if not isinstance(raw, list):
+        return []
+    return [finding for finding in raw if isinstance(finding, dict) and _is_contract_content_policy_finding(finding)]
 
 
 def _headers(context) -> dict[str, str]:
@@ -573,13 +787,18 @@ def step_command_endpoints_reject_get(context):
 
 @given("the Auditing UI entrypoint is reachable")
 def step_auditing_ui_reachable(context):
-    ui_base = os.getenv("BDD_DCS_UI_URL", _base_url(context)).rstrip("/")
-    candidates = ["/audit", "/ui/audit", "/"]
+    configured_ui = os.getenv("BDD_DCS_UI_URL", "").strip()
+    if configured_ui:
+        ui_base = configured_ui.rstrip("/")
+    else:
+        api_base = _base_url(context)
+        ui_base = api_base[:-4] if api_base.endswith("/api") else api_base
+    candidates = ["/ui/audit", "/audit", "/ui/", "/"]
     last_response = None
     for path in candidates:
         response = requests.get(f"{ui_base}{path}", timeout=_request_timeout(context))
         last_response = response
-        if response.status_code < 400 and "audit" in response.text.lower():
+        if response.status_code < 400 and ("audit" in response.text.lower() or path.rstrip("/").endswith("audit")):
             context.pacm_auditing_ui_url = f"{ui_base}{path}"
             return
     assert last_response is not None
@@ -612,3 +831,96 @@ def step_ui_progress_indicator_present(context):
     assert any(indicator in ui_text for indicator in indicators), (
         "Auditing UI does not expose a running-audit progress indicator"
     )
+
+
+@given('a stored contract "{name}" has SLA availability below the contract policy minimum')
+def step_given_contract_low_availability(context, name):
+    _store_contract_content_fixture(context, name, availability=99.5, structure_violation=False)
+
+
+@given('a stored contract "{name}" has a Contract-Content structure violation')
+def step_given_contract_content_structure_violation(context, name):
+    _store_contract_content_fixture(context, name, availability=99.95, structure_violation=True)
+
+
+@when('an Auditor starts a CONTRACT-PACM audit for stored contract "{name}"')
+def step_start_contract_pacm_audit_for_contract(context, name):
+    assert (getattr(context, "contract_dids", {}) or {}).get(name), f"No stored contract fixture named {name!r}"
+    context.pacm_current_contract_name = name
+    step_start_pacm_audit(context, "CONTRACT")
+
+
+@given('an Auditor has started a CONTRACT-PACM audit for stored contract "{name}"')
+def step_given_started_contract_pacm_audit_for_contract(context, name):
+    step_start_contract_pacm_audit_for_contract(context, name)
+    _assert_success(context.requests_response)
+
+
+@then('the CONTRACT-PACM audit contains a Contract-Content-Policy finding with rule reference "{rule_reference}"')
+def step_contract_pacm_contains_rule_reference(context, rule_reference):
+    contract_name = getattr(context, "pacm_current_contract_name", None)
+    findings = _contract_content_policy_findings(context, contract_name)
+    matches = [finding for finding in findings if _rule_reference(finding) == rule_reference]
+    assert matches, f"No Contract-Content-Policy finding with rule reference {rule_reference}: {findings}"
+    assert any(_is_failed_finding(finding) for finding in matches), f"Rule {rule_reference} was not reported as failing: {matches}"
+
+
+@then("the CONTRACT-PACM audit contains a failing Contract-Content SHACL finding from the configured shape set")
+def step_contract_pacm_contains_configured_shacl_finding(context):
+    contract_name = getattr(context, "pacm_current_contract_name", None)
+    findings = _contract_content_policy_findings(context, contract_name)
+    matches = [
+        finding for finding in findings
+        if _is_configured_shacl_rule(_rule_reference(finding)) and _is_failed_finding(finding)
+    ]
+    assert matches, f"No failing SHACL finding from configured shape set found: {findings}"
+
+
+@then("every Contract-Content-Policy finding in the CONTRACT-PACM audit has a non-empty rule reference")
+def step_every_contract_policy_finding_has_rule_reference(context):
+    contract_name = getattr(context, "pacm_current_contract_name", None)
+    findings = _contract_content_policy_findings(context, contract_name)
+    assert findings, "CONTRACT-PACM audit has no Contract-Content-Policy findings"
+    missing = [finding for finding in findings if not _rule_reference(finding)]
+    assert not missing, f"Contract-Content-Policy findings without rule reference: {missing}"
+
+
+@when('a PACM JSON report is generated for the current AuditRun and stored contract "{name}"')
+def step_generate_json_report_for_contract(context, name):
+    did = (getattr(context, "contract_dids", {}) or {}).get(name)
+    assert did, f"No stored contract fixture named {name!r}"
+    response = _post_json(
+        context,
+        "/pac/report",
+        {"auditRunId": _current_run_id(context), "format": "json", "did": did},
+    )
+    context.requests_response = response
+    _assert_success(response)
+    report = _json(response)
+    assert isinstance(report, dict), f"PACM report response is not an object: {report}"
+    context.pacm_current_report = report
+
+
+@then("the PACM report summary counts passed and failed Contract-Content-Policy results")
+def step_report_summary_counts_contract_policy_results(context):
+    report = getattr(context, "pacm_current_report", None)
+    assert isinstance(report, dict), "No current PACM report was generated"
+    summary = _summary(_report_object(report))
+    passed = int(_field(summary, "passed", "passedChecks", "passed_checks") or 0)
+    failed = int(_field(summary, "failed", "failedChecks", "failed_checks") or 0)
+    total = int(_field(summary, "totalChecks", "total_checks") or 0)
+    findings = _report_policy_findings(report)
+    assert findings, f"PACM report has no Contract-Content-Policy findings: {report}"
+    assert passed > 0, f"PACM report summary does not count passed policy checks: {summary}"
+    assert failed > 0, f"PACM report summary does not count failed policy checks: {summary}"
+    assert total >= passed + failed, f"PACM report summary total is inconsistent: {summary}"
+
+
+@then("the PACM report export contains Contract-Content-Policy findings with rule references")
+def step_report_export_contains_contract_policy_findings_with_rules(context):
+    report = getattr(context, "pacm_current_report", None)
+    assert isinstance(report, dict), "No current PACM report was generated"
+    findings = _report_policy_findings(report)
+    assert findings, f"PACM report export has no Contract-Content-Policy findings: {report}"
+    missing = [finding for finding in findings if not _rule_reference(finding)]
+    assert not missing, f"PACM report export contains policy findings without rule references: {missing}"

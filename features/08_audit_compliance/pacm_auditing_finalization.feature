@@ -162,3 +162,49 @@ Feature: PACM auditing finalization
     When PACM reports are generated for the current AuditRun in formats "json,csv,pdf"
     Then the generated PACM reports share the same summary
     And the generated PACM reports identify the same AuditRun
+
+
+  @REQ-pacm-contract-content-policy-audits-AC1 @DCS-FR-PACM-03 @UC-08 @UC-08-02
+  Scenario: CONTRACT PACM audit flags stored contract SLA availability below policy minimum
+    Given I am authenticated with roles: "Contract Creator"
+    And a stored contract "Policy SLA breach" has SLA availability below the contract policy minimum
+    And I am authenticated with roles: "Auditor"
+    When an Auditor starts a CONTRACT-PACM audit for stored contract "Policy SLA breach"
+    Then the PACM audit request succeeds
+    And the CONTRACT-PACM audit contains a Contract-Content-Policy finding with rule reference "FACIS-CONTRACT-POLICY-003"
+
+  @REQ-pacm-contract-content-policy-audits-AC2 @DCS-FR-PACM-03 @UC-08 @UC-08-02
+  Scenario: CONTRACT PACM audit flags stored contract content structure violations from configured SHACL shapes
+    Given I am authenticated with roles: "Contract Creator"
+    And a stored contract "Policy SHACL breach" has a Contract-Content structure violation
+    And I am authenticated with roles: "Auditor"
+    When an Auditor starts a CONTRACT-PACM audit for stored contract "Policy SHACL breach"
+    Then the PACM audit request succeeds
+    And the CONTRACT-PACM audit contains a failing Contract-Content SHACL finding from the configured shape set
+
+  @REQ-pacm-contract-content-policy-audits-AC3 @DCS-FR-PACM-03 @UC-08-02
+  Scenario: CONTRACT PACM audit exposes rule references on every contract content policy finding
+    Given I am authenticated with roles: "Contract Creator"
+    And a stored contract "Policy rule references" has SLA availability below the contract policy minimum
+    And I am authenticated with roles: "Auditor"
+    When an Auditor starts a CONTRACT-PACM audit for stored contract "Policy rule references"
+    Then the PACM audit request succeeds
+    And every Contract-Content-Policy finding in the CONTRACT-PACM audit has a non-empty rule reference
+
+  @REQ-pacm-contract-content-policy-audits-AC4 @UC-08 @UC-08-02
+  Scenario: CONTRACT PACM report summary counts passed and failed contract content policy checks
+    Given I am authenticated with roles: "Contract Creator"
+    And a stored contract "Policy report summary" has SLA availability below the contract policy minimum
+    And I am authenticated with roles: "Auditor"
+    And an Auditor has started a CONTRACT-PACM audit for stored contract "Policy report summary"
+    When a PACM JSON report is generated for the current AuditRun and stored contract "Policy report summary"
+    Then the PACM report summary counts passed and failed Contract-Content-Policy results
+
+  @REQ-pacm-contract-content-policy-audits-AC5 @UC-08 @UC-08-02
+  Scenario: CONTRACT PACM report export includes contract content policy findings with rule references
+    Given I am authenticated with roles: "Contract Creator"
+    And a stored contract "Policy report export" has SLA availability below the contract policy minimum
+    And I am authenticated with roles: "Auditor"
+    And an Auditor has started a CONTRACT-PACM audit for stored contract "Policy report export"
+    When a PACM JSON report is generated for the current AuditRun and stored contract "Policy report export"
+    Then the PACM report export contains Contract-Content-Policy findings with rule references
