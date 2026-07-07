@@ -366,26 +366,27 @@ FROM contracts;
 
 CREATE OR REPLACE VIEW contracts_archive_metadata AS
 SELECT
-    c.did,
-    c.created_by,
-    c.created_at,
-    c.updated_at,
-    c.start_date,
-    c.exp_date,
-    c.exp_policy,
-    c.exp_notice_period,
-    c.state,
-    c.contract_version,
-    c.name,
-    c.description,
-    c.search_vector,
-    c.responsible
-FROM contracts_effective c
-         INNER JOIN contract_archive_entries a
-                    ON a.did = c.did
-                        AND a.contract_version = c.contract_version
-WHERE a.archive_status <> 'DELETED';
-
+    a.did,
+    COALESCE(NULLIF(a.contract_snapshot->>'origin', ''), '') AS origin,
+    COALESCE(NULLIF(a.contract_snapshot->>'created_by', ''), a.stored_by) AS created_by,
+    COALESCE((a.contract_snapshot->>'created_at')::TIMESTAMPTZ, a.stored_at) AS created_at,
+    COALESCE((a.contract_snapshot->>'updated_at')::TIMESTAMPTZ, a.stored_at) AS updated_at,
+    (a.contract_snapshot->>'start_date')::TIMESTAMPTZ AS start_date,
+    (a.contract_snapshot->>'exp_date')::TIMESTAMPTZ AS exp_date,
+    NULLIF(a.contract_snapshot->>'exp_policy', '') AS exp_policy,
+    (a.contract_snapshot->>'exp_notice_period')::INT AS exp_notice_period,
+    COALESCE(NULLIF(a.contract_snapshot->>'state', ''), 'APPROVED')::contract_state AS state,
+    a.contract_version,
+    NULLIF(a.contract_snapshot->>'name', '') AS name,
+    NULLIF(a.contract_snapshot->>'description', '') AS description,
+    to_tsvector('english', a.contract_snapshot::TEXT) AS search_vector,
+    COALESCE(a.contract_snapshot->'responsible', '{}'::JSONB) AS responsible,
+    COALESCE(NULLIF(a.contract_snapshot->>'template_did', ''), '') AS template_did,
+    COALESCE((a.contract_snapshot->>'template_version')::INT, 0) AS template_version,
+    TRUE AS archived
+FROM contract_archive_entries a
+WHERE a.archive_status <> 'DELETED'
+  AND a.deleted_at IS NULL;
 ------------------------------------------------------------------------------------------------------------------------
 
 CREATE OR REPLACE VIEW contracts_effective_process_data AS

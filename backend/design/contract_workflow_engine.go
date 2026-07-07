@@ -122,6 +122,7 @@ var ContractRetrieveRequest = Type("ContractRetrieveRequest", func() {
 
 	Attribute("offset", Int, "Start index of results")
 	Attribute("limit", Int, "Page size of results")
+	Attribute("archived", Boolean, "If set, filter contracts by archive presence")
 })
 
 var ContractItem = Type("ContractItem", func() {
@@ -143,8 +144,9 @@ var ContractItem = Type("ContractItem", func() {
 	Attribute("latest_template_did", String, "The DID of the latest template for this contract")
 	Attribute("template_is_deprecated", Boolean, "Whether the template is deprecated")
 	Attribute("parent_contract_did", String, "The DID of the parent contract, if this is a sub-contract")
+	Attribute("archived", Boolean, "Whether this contract version has an archive entry")
 
-	Required("did", "state", "created_by", "created_at", "updated_at", "contract_version", "template_did", "template_version")
+	Required("did", "state", "created_by", "created_at", "updated_at", "contract_version", "template_did", "template_version", "archived")
 })
 
 var ContractReviewTaskItem = Type("ContractReviewTaskItem", func() {
@@ -279,6 +281,7 @@ var ContractSearchRequest = Type("ContractSearchRequest", func() {
 	Attribute("name", String, "The name of the contract")
 	Attribute("description", String, "A description for that contract")
 	Attribute("contract_data", String, "Search value for full text search in contract data")
+	Attribute("archived", Boolean, "If set, filter contracts by archive presence")
 })
 
 var ContractSearchResponse = Type("ContractSearchResponse", func() {
@@ -301,8 +304,9 @@ var ContractSearchResponse = Type("ContractSearchResponse", func() {
 	Attribute("created_at", String, "The timestamp when the contract template was created")
 
 	Attribute("updated_at", String, "The timestamp when the contract template was updated")
+	Attribute("archived", Boolean, "Whether this contract version has an archive entry")
 
-	Required("did", "state", "created_at", "updated_at", "contract_version")
+	Required("did", "state", "created_at", "updated_at", "contract_version", "archived")
 })
 
 var ContractNegotiationRequest = Type("ContractNegotiationRequest", func() {
@@ -679,6 +683,7 @@ var _ = Service("ContractWorkflowEngine", func() {
 			GET("/contract/retrieve")
 			Param("offset")
 			Param("limit")
+			Param("archived")
 			Response(StatusOK)
 			Response("bad_request", StatusBadRequest)
 			Response("internal_error", StatusInternalServerError)
@@ -791,6 +796,7 @@ var _ = Service("ContractWorkflowEngine", func() {
 			Param("name")
 			Param("description")
 			Param("contract_data")
+			Param("archived")
 			Response(StatusOK)
 			Response("bad_request", StatusBadRequest)
 			Response("internal_error", StatusInternalServerError)

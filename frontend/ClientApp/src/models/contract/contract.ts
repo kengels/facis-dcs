@@ -33,6 +33,7 @@ export interface Contract {
   template_version?: number
   template_is_deprecated?: boolean
   parent_contract_did?: string
+  archived?: boolean
 }
 
 export type ContractChangeRequest = Pick<Contract, 'name' | 'description' | 'exp_notice_period' | 'exp_policy'> & {

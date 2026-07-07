@@ -82,6 +82,7 @@ func buildContractSnapshot(contract *db.Contract) (datatype.JSON, error) {
 
 	snapshot := map[string]any{
 		"did":               contract.DID,
+		"origin":            contract.Origin,
 		"contract_version":  contract.ContractVersion,
 		"state":             contract.State,
 		"name":              stringPtrValue(contract.Name),
@@ -94,6 +95,8 @@ func buildContractSnapshot(contract *db.Contract) (datatype.JSON, error) {
 		"exp_policy":        stringPtrValue(contract.ExpPolicy),
 		"exp_notice_period": intPtrValue(contract.ExpNoticePeriod),
 		"responsible":       contract.Responsible,
+		"template_did":      contract.TemplateDID,
+		"template_version":  contract.TemplateVersion,
 		"contract_data":     contractData,
 	}
 

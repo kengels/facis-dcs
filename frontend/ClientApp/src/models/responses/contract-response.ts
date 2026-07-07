@@ -69,6 +69,7 @@ interface ContractSearchResponseItem {
   responsible?: ContractResponsible
   created_at: string
   updated_at: string
+  archived: boolean
 }
 
 export type ContractSearchResponse = ContractSearchResponseItem[]

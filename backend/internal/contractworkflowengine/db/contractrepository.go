@@ -145,6 +145,7 @@ type ContractMetadata struct {
 	LatestTemplateDID    *string      `db:"latest_template_did"`
 	TemplateIsDeprecated *bool        `db:"template_is_deprecated"`
 	ParentContractDID    *string      `db:"parent_contract_did"`
+	Archived             bool         `db:"archived"`
 }
 
 type ContractProcessData struct {
@@ -222,6 +223,7 @@ type SearchValues struct {
 	Name            string
 	Description     string
 	ContractData    string
+	Archived        *bool
 }
 
 type ContractPDFState struct {
@@ -238,6 +240,7 @@ type ContractRepo interface {
 	ReadDataByDID(ctx context.Context, tx *sqlx.Tx, did string) (*Contract, error)
 	ExistsByDID(ctx context.Context, tx *sqlx.Tx, did string) (bool, error)
 	ReadExpiredContracts(ctx context.Context, tx *sqlx.Tx) ([]ContractMetadata, error)
+	ArchiveEntryExists(ctx context.Context, tx *sqlx.Tx, did string, contractVersion int) (bool, error)
 	StoreArchiveEntry(ctx context.Context, tx *sqlx.Tx, data ContractArchiveEntry) error
 	ReadArchiveEntries(ctx context.Context, tx *sqlx.Tx) ([]ContractArchiveEntry, error)
 	ReadArchivedContracts(ctx context.Context, tx *sqlx.Tx) ([]ContractMetadata, error)

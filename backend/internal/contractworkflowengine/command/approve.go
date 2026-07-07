@@ -163,6 +163,13 @@ func (h *Approver) Handle(ctx context.Context, cmd ApproveCmd) error {
 		if err != nil {
 			return fmt.Errorf("could not read approved contract for archive storage: %w", err)
 		}
+		archiveExists, err := h.CRepo.ArchiveEntryExists(ctx, tx, cmd.DID, approvedContract.ContractVersion)
+		if err != nil {
+			return fmt.Errorf("could not check existing archive entry: %w", err)
+		}
+		if archiveExists {
+			return nil
+		}
 		finalContractData, err := semanticmapper.MaterializeStoredContractJSONLD(
 			*approvedContract,
 			semanticmapper.DefaultProfile(),

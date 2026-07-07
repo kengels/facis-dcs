@@ -136,10 +136,16 @@ func (r *PostgresContractRepo) ExistsByDID(ctx context.Context, tx *sqlx.Tx, did
 	return exists, nil
 }
 
-func (r *PostgresContractRepo) ReadAllMetaData(ctx context.Context, tx *sqlx.Tx, pagination datatype.Pagination) ([]db.ContractMetadata, error) {
-	query := `
+func contractMetadataSelectQuery(includeSearchVector bool) string {
+	searchVectorColumn := ""
+	if includeSearchVector {
+		searchVectorColumn = ",\n\t\t\tce.search_vector AS search_vector"
+	}
+
+	return `
 		SELECT
-			cem.did, cem.origin, cem.state, cem.name, cem.description, cem.created_by, cem.created_at, cem.updated_at,
+			cem.did, cem.origin, cem.state, COALESCE(cem.name, ce.contract_data->'dcs:metadata'->>'dcs:title') AS name,
+			cem.description, cem.created_by, cem.created_at, cem.updated_at,
 			cem.contract_version, cem.start_date, cem.exp_date, cem.exp_policy, cem.exp_notice_period, cem.responsible,
 			cem.template_did, cem.template_version,
 			cem.state IN ('DRAFT', 'REJECTED', 'SUBMITTED', 'NEGOTIATION', 'REVIEWED', 'APPROVED')
@@ -147,7 +153,13 @@ func (r *PostgresContractRepo) ReadAllMetaData(ctx context.Context, tx *sqlx.Tx,
 			latest.did AS latest_template_did,
 			COALESCE(tpl.state = 'DEPRECATED', FALSE) AS template_is_deprecated,
 			ce.contract_data->'dcs:parentContract'->>'@id' AS parent_contract_did,
-			COALESCE(cem.name, ce.contract_data->'dcs:metadata'->>'dcs:title') AS name
+			EXISTS (
+				SELECT 1
+				FROM contract_archive_entries cae
+				WHERE cae.did = cem.did
+				  AND cae.contract_version = cem.contract_version
+				  AND cae.deleted_at IS NULL
+			) AS archived` + searchVectorColumn + `
 		FROM contracts_effective_metadata cem
 		LEFT JOIN contracts_effective ce ON ce.did = cem.did
 		LEFT JOIN contract_templates tpl
@@ -161,12 +173,44 @@ func (r *PostgresContractRepo) ReadAllMetaData(ctx context.Context, tx *sqlx.Tx,
 			LIMIT 1
 		) latest ON true
 	`
+}
+
+func readAllMetaDataQuery(pagination datatype.Pagination) (string, []any) {
+	query := contractMetadataSelectQuery(false)
 	var params []any
 	if pagination.Limit > 0 {
-		offset := (pagination.Offset - 1) * pagination.Limit
 		query += ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
-		params = append(params, pagination.Limit, offset)
+		params = append(params, pagination.Limit, pagination.Offset)
 	}
+	return query, params
+}
+
+func readAllMetaDataByFilterQuery(values db.SearchValues, pagination datatype.Pagination) (string, []interface{}, error) {
+	query := `
+		SELECT did, origin, state, name, description, created_by, created_at, updated_at, contract_version, start_date,
+		       exp_date, exp_policy, exp_notice_period, responsible, template_did, template_version, outdated,
+		       latest_template_did, template_is_deprecated, parent_contract_did, archived
+		FROM (` + contractMetadataSelectQuery(true) + `) filtered_contracts`
+
+	conditions, params, err := createSearchConditions(values)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(params) > 0 {
+		query += " WHERE " + *conditions
+	}
+
+	if pagination.Limit > 0 {
+		n := len(params) + 1
+		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
+		params = append(params, pagination.Limit, pagination.Offset)
+	}
+
+	return query, params, nil
+}
+
+func (r *PostgresContractRepo) ReadAllMetaData(ctx context.Context, tx *sqlx.Tx, pagination datatype.Pagination) ([]db.ContractMetadata, error) {
+	query, params := readAllMetaDataQuery(pagination)
 
 	var cts []db.ContractMetadata
 	err := tx.SelectContext(ctx, &cts, query, params...)
@@ -177,25 +221,9 @@ func (r *PostgresContractRepo) ReadAllMetaData(ctx context.Context, tx *sqlx.Tx,
 }
 
 func (r *PostgresContractRepo) ReadAllMetaDataByFilter(ctx context.Context, tx *sqlx.Tx, values db.SearchValues, pagination datatype.Pagination) ([]db.ContractMetadata, error) {
-	query := `
-        SELECT did, origin, state, name, description, created_by, created_at, updated_at, contract_version, start_date,
-               exp_date, exp_policy, exp_notice_period, responsible, template_did, template_version
-        FROM contracts_effective_metadata
-    `
-
-	conditions, params, err := createSearchConditions(values)
+	query, params, err := readAllMetaDataByFilterQuery(values, pagination)
 	if err != nil {
 		return nil, err
-	}
-	if len(params) > 0 {
-		query += " WHERE " + *conditions
-	}
-
-	if pagination.Limit > 0 {
-		offset := (pagination.Offset - 1) * pagination.Limit
-		n := len(params) + 1
-		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", n, n+1)
-		params = append(params, pagination.Limit, offset)
 	}
 
 	var cts []db.ContractMetadata
@@ -256,13 +284,32 @@ func (r *PostgresContractRepo) ReadExpiredContracts(ctx context.Context, tx *sql
 	return cts, nil
 }
 
+func archiveEntryExistsQuery() string {
+	return `
+		SELECT EXISTS (
+			SELECT 1
+			FROM contract_archive_entries
+			WHERE did = $1
+			  AND contract_version = $2
+			  AND deleted_at IS NULL
+		)
+	`
+}
+
+func (r *PostgresContractRepo) ArchiveEntryExists(ctx context.Context, tx *sqlx.Tx, did string, contractVersion int) (bool, error) {
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, archiveEntryExistsQuery(), did, contractVersion); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 func (r *PostgresContractRepo) StoreArchiveEntry(ctx context.Context, tx *sqlx.Tx, data db.ContractArchiveEntry) error {
 	statement := `
         INSERT INTO contract_archive_entries (
             did, contract_version, stored_by, stored_at, contract_snapshot, content_hash, snapshot_cid, signature_metadata,
             credential_hashes, tsa_receipt, evidence, retention_until
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::jsonb, '{}'::jsonb), COALESCE($9::jsonb, '{}'::jsonb), COALESCE($10::jsonb, '{}'::jsonb), COALESCE($11::jsonb, '{}'::jsonb), $12)
-        ON CONFLICT (did, contract_version) DO NOTHING
     `
 	_, err := tx.ExecContext(ctx, statement,
 		data.DID,
@@ -299,7 +346,7 @@ func (r *PostgresContractRepo) ReadArchiveEntries(ctx context.Context, tx *sqlx.
 
 func (r *PostgresContractRepo) ReadArchivedContracts(ctx context.Context, tx *sqlx.Tx) ([]db.ContractMetadata, error) {
 	query := `
-	    SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible
+	    SELECT did, origin, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, template_did, template_version, archived
     FROM contracts_archive_metadata
 	`
 	var cts []db.ContractMetadata
@@ -313,7 +360,7 @@ func (r *PostgresContractRepo) ReadArchivedContracts(ctx context.Context, tx *sq
 
 func (r *PostgresContractRepo) ReadArchivedContractsByFilter(ctx context.Context, tx *sqlx.Tx, values db.SearchValues) ([]db.ContractMetadata, error) {
 	query := `
-	        SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible
+	        SELECT did, origin, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, template_did, template_version, archived
         FROM contracts_archive_metadata
     `
 	conditions, params, err := createSearchConditions(values)
@@ -412,6 +459,11 @@ func createSearchConditions(values db.SearchValues) (*string, []interface{}, err
 	if len(values.ContractData) > 0 {
 		conditions += ` search_vector @@ plainto_tsquery('english', $` + strconv.Itoa(paramIndex) + `) AND`
 		params = append(params, values.ContractData)
+		paramIndex++
+	}
+	if values.Archived != nil {
+		conditions += ` archived = $` + strconv.Itoa(paramIndex) + ` AND`
+		params = append(params, *values.Archived)
 	}
 	l := len(" AND")
 	if len(conditions) > l {

@@ -33,6 +33,7 @@ type GetAllMetadataByFilterQry struct {
 	HolderDID       string
 	Pagination      datatype.Pagination
 	UserRoles       userrole.UserRoles
+	Archived        *bool
 }
 
 type GetAllMetadataByFilterResult struct {
@@ -49,6 +50,7 @@ type GetAllMetadataByFilterResult struct {
 	ExpPolicy       *expirationpolicy.ExpirationPolicy
 	ExpNoticePeriod *int
 	Responsible     *db.Responsible
+	Archived        bool
 }
 
 type GetAllMetaDataByFilterHandler struct {
@@ -80,6 +82,7 @@ func (h *GetAllMetaDataByFilterHandler) Handle(ctx context.Context, query GetAll
 		Name:            query.Name,
 		Description:     query.Description,
 		ContractData:    query.ContractData,
+		Archived:        query.Archived,
 	}
 
 	contracts, err := h.CRepo.ReadAllMetaDataByFilter(ctx, tx, searchValues, query.Pagination)
@@ -133,6 +136,7 @@ func (h *GetAllMetaDataByFilterHandler) Handle(ctx context.Context, query GetAll
 			ExpPolicy:       expPolicy,
 			ExpNoticePeriod: data.ExpNoticePeriod,
 			Responsible:     data.Responsible,
+			Archived:        data.Archived,
 		}
 	}
 

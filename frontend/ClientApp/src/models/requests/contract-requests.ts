@@ -39,6 +39,7 @@ export interface ContractSubmitRequest {
 export interface ContractRetrieveRequest {
   offset?: number
   limit?: number
+  archived?: boolean
 }
 
 export interface ContractRetrieveByIdRequest {
@@ -57,6 +58,8 @@ export interface ContractSearchRequest {
   state?: ContractState
   name?: string
   description?: string
+  contract_data?: string
+  archived?: boolean
   filter?: string
 }
 

@@ -4,8 +4,9 @@ import type { ContractSearchResponse } from '@/models/responses/contract-respons
 import { contractWorkflowService } from '@/services/contract-workflow-service'
 import ListSearch from '../ListSearch.vue'
 
-defineProps<{
+const props = defineProps<{
   contracts: Contract[]
+  archived?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -31,6 +32,7 @@ const responseMapper = (response: ContractSearchResponse) =>
         state: item.state,
         updated_at: item.updated_at,
         created_at: item.created_at,
+        archived: item.archived,
       }) as Contract,
   )
 const empty: Contract = { did: '', created_at: '', state: 'DRAFT', updated_at: '', created_by: '', contract_version: 1 }
@@ -40,7 +42,9 @@ const empty: Contract = { did: '', created_at: '', state: 'DRAFT', updated_at: '
   <ListSearch
     :items="contracts"
     :filter-labels="filterLabels"
-    :search-fn="async (request) => responseMapper(await contractWorkflowService.search(request))"
+    :search-fn="
+      async (request) => responseMapper(await contractWorkflowService.search({ ...request, archived: props.archived }))
+    "
     :empty-item="empty"
     placeholder="Search contracts"
     @search-result="(result) => emit('searchResult', result)"

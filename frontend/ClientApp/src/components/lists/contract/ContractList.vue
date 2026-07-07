@@ -17,10 +17,18 @@ const { loading, error } = storeToRefs(contractsStore)
 
 const contracts: Ref<Contract[]> = ref([])
 
-const pageLimits = ref([2, 25, 50, 100])
-const limit = computed(() => pageLimits.value[0] ?? 25)
+const pageLimits = [25, 50, 100]
+const limit = ref<number>(25)
 const currentPage = ref(1)
 const hasNextPage = ref(true)
+
+type ArchiveFilter = 'all' | 'archived' | 'not_archived'
+const archiveFilter = ref<ArchiveFilter>('all')
+const archivedParam = computed(() => {
+  if (archiveFilter.value === 'archived') return true
+  if (archiveFilter.value === 'not_archived') return false
+  return undefined
+})
 
 const searchResults: Ref<Contract[] | null> = ref(null)
 
@@ -40,7 +48,7 @@ onMounted(async () => {
 })
 
 const setPaginatedContracts = async () => {
-  await contractsStore.loadPaginatedContracts(currentPage.value, limit.value)
+  await contractsStore.loadPaginatedContracts(currentPage.value, limit.value, archivedParam.value)
   contracts.value = contractsStore.paginatedContracts
   hasNextPage.value = contracts.value.length === limit.value
 }
@@ -81,15 +89,31 @@ const applySearchResult = (searchResult: Contract[] | null) => {
   currentPage.value = 1
 }
 
+const setArchiveFilter = async () => {
+  searchResults.value = null
+  currentPage.value = 1
+  await setPaginatedContracts()
+}
+
 onUnmounted(() => stateFilterStore.reset())
 </script>
 
 <template>
-  <div v-if="loading" class="pl-4">Loading Templates...</div>
+  <div v-if="loading" class="pl-4">Loading contracts...</div>
   <div v-else-if="error" class="pl-4">{{ error }}</div>
   <ul class="list">
     <li class="flex flex-col justify-between px-4 tracking-wide sm:flex-row">
-      <ContractListSearch :contracts="contracts" class="flex-1" @search-result="applySearchResult" />
+      <ContractListSearch
+        :contracts="contracts"
+        :archived="archivedParam"
+        class="flex-1"
+        @search-result="applySearchResult"
+      />
+      <select v-model="archiveFilter" class="select m-2 select-secondary" @change="setArchiveFilter">
+        <option value="all">All contracts</option>
+        <option value="not_archived">Not archived</option>
+        <option value="archived">Archived contracts</option>
+      </select>
       <ListStateFilter label="Contract" :filters="contractStates" store-type="contracts" :disabled="!hasContracts" />
       <ListSort v-model:sort-by="sortBy" v-model:sort-order="sortOrder" :sorter="sorter" :disabled="!hasContracts" />
     </li>

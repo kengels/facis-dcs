@@ -33,6 +33,7 @@ type GetAllMetadataQry struct {
 	Pagination  datatype.Pagination
 	UserRoles   userrole.UserRoles
 	DIDDocument identity.DIDDocument
+	Archived    *bool
 }
 
 type ReviewTaskItem struct {
@@ -96,7 +97,11 @@ func (h *GetAllMetadataHandler) Handle(ctx context.Context, query GetAllMetadata
 
 	var contractsMetadata []db.ContractMetadata
 	if query.Pagination.Limit >= 0 {
-		contractsMetadata, err = h.CRepo.ReadAllMetaData(ctx, tx, query.Pagination)
+		if query.Archived != nil {
+			contractsMetadata, err = h.CRepo.ReadAllMetaDataByFilter(ctx, tx, db.SearchValues{Archived: query.Archived}, query.Pagination)
+		} else {
+			contractsMetadata, err = h.CRepo.ReadAllMetaData(ctx, tx, query.Pagination)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("could not read all contracts: %w", err)
 		}

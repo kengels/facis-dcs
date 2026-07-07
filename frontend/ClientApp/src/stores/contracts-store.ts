@@ -35,8 +35,8 @@ export const useContractsStore = defineStore('contracts', () => {
     ),
   )
 
-  const fetchContracts = async (limit?: number, offset?: number) =>
-    await contractWorkflowService.retrieve({ limit, offset })
+  const fetchContracts = async (limit?: number, offset?: number, archived?: boolean) =>
+    await contractWorkflowService.retrieve({ limit, offset, archived })
 
   async function loadContracts() {
     loading.value = true
@@ -66,12 +66,12 @@ export const useContractsStore = defineStore('contracts', () => {
     }
   }
 
-  async function loadPaginatedContracts(currentPage: number, limit: number) {
+  async function loadPaginatedContracts(currentPage: number, limit: number, archived?: boolean) {
     loading.value = true
     error.value = null
     try {
-      const offset = currentPage
-      const paginatedResult = await fetchContracts(limit, offset)
+      const offset = (currentPage - 1) * limit
+      const paginatedResult = await fetchContracts(limit, offset, archived)
       paginatedContracts.value = paginatedResult.contracts
       negotiationTasks.value = paginatedResult.negotiation_tasks.map((task) => ({ ...task, type: 'contract' }))
       reviewTasks.value = paginatedResult.review_tasks.map((task) => ({ ...task, type: 'contract' }))

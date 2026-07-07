@@ -338,6 +338,7 @@ func (s *contractWorkflowEnginesrvc) Retrieve(ctx context.Context, req *contract
 		UserRoles:   middleware.GetUserRoles(ctx),
 		Pagination:  pagination,
 		DIDDocument: s.DIDDocument,
+		Archived:    req.Archived,
 	}
 	qryHandler := contract.GetAllMetadataHandler{
 		DB:     s.DB,
@@ -399,6 +400,7 @@ func (s *contractWorkflowEnginesrvc) Retrieve(ctx context.Context, req *contract
 			LatestTemplateDid:    item.LatestTemplateDID,
 			TemplateIsDeprecated: item.TemplateIsDeprecated,
 			ParentContractDid:    item.ParentContractDID,
+			Archived:             item.Archived,
 		})
 	}
 
@@ -769,6 +771,7 @@ func (s *contractWorkflowEnginesrvc) Search(ctx context.Context, req *contractwo
 		Description:     base.DerefString(req.Description),
 		ContractData:    base.DerefString(req.ContractData),
 		Pagination:      pagination,
+		Archived:        req.Archived,
 	}
 	qryHandler := contract.GetAllMetaDataByFilterHandler{
 		DB:    s.DB,
@@ -806,6 +809,7 @@ func (s *contractWorkflowEnginesrvc) Search(ctx context.Context, req *contractwo
 			ExpPolicy:       expPolicy,
 			ExpNoticePeriod: item.ExpNoticePeriod,
 			Responsible:     item.Responsible,
+			Archived:        item.Archived,
 		})
 	}
 
