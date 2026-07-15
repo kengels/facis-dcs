@@ -26,7 +26,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div :class="[drawerClasses.root, 'min-h-screen']">
+  <div :class="[drawerClasses.root, 'min-h-screen']" data-test-id="app-authenticated-shell">
     <input :id="pageSidebarId" type="checkbox" class="drawer-toggle" />
     <div :class="[drawerClasses.header, 'flex h-screen flex-col overflow-hidden bg-base-100']">
       <!-- Navbar -->

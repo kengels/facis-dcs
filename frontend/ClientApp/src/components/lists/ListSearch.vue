@@ -11,6 +11,7 @@ const props = defineProps<{
   searchFn: SearchFunction<T>
   emptyItem: T
   placeholder?: string
+  dataTestPrefix?: string
 }>()
 
 const emit = defineEmits<{
@@ -123,6 +124,7 @@ function onFilterSelect(label: FilterLabelValue) {
     <div class="join-item">
       <button
         id="list-btn-search"
+        :data-test-id="dataTestPrefix ? `${dataTestPrefix}-filter-open` : undefined"
         type="button"
         class="select w-full rounded-t-md rounded-b-none select-secondary sm:rounded-l-md sm:rounded-tr-none"
         popovertarget="list-popover-search"
@@ -142,7 +144,12 @@ function onFilterSelect(label: FilterLabelValue) {
         </li>
         <template v-for="[key, label] in Object.entries(filterLabels)" :key="key">
           <li>
-            <a :class="{ 'bg-primary text-primary-content': label === selectedFilter }" @click="onFilterSelect(label)">
+            <a
+              :data-test-id="dataTestPrefix ? `${dataTestPrefix}-filter-option` : undefined"
+              :data-test-key="String(key)"
+              :class="{ 'bg-primary text-primary-content': label === selectedFilter }"
+              @click="onFilterSelect(label)"
+            >
               {{ label }}
             </a>
           </li>
@@ -153,6 +160,7 @@ function onFilterSelect(label: FilterLabelValue) {
       <Combobox v-model="selectedOption" nullable @update:model-value="onComboboxUpdate">
         <label class="input join-item ms-0 -mt-px w-full rounded-none input-secondary sm:-ms-px sm:mt-0">
           <ComboboxInput
+            :data-test-id="dataTestPrefix ? `${dataTestPrefix}-query` : undefined"
             :display-value="(item) => getDisplayValue(item as T | null)"
             :placeholder="placeholder || 'Search'"
             class="w-full bg-transparent"
@@ -188,6 +196,7 @@ function onFilterSelect(label: FilterLabelValue) {
       </Combobox>
     </div>
     <button
+      :data-test-id="dataTestPrefix ? `${dataTestPrefix}-submit` : undefined"
       class="btn join-item ms-0 -mt-px rounded-t-none rounded-b-md btn-secondary sm:-ms-px sm:mt-0 sm:rounded-r-md sm:rounded-bl-none"
       @click="searchList"
     >

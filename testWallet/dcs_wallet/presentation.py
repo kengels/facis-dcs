@@ -15,6 +15,7 @@ from dcs_wallet.sdjwt import (
     decode_disclosure,
     disclosure_digest,
     join_sd_jwt,
+    merge_disclosed_claims,
     sd_hash,
     split_sd_jwt,
 )
@@ -128,6 +129,24 @@ def build_vp_token(
 ) -> str:
     """Attach a fresh KB-JWT (aud/nonce from the OpenID4VP request) to a stored credential."""
     raw_credential = load_credential_sd_jwt(credential_name)
+    return build_vp_token_from_stored_credential(
+        raw_credential=raw_credential,
+        nonce=nonce,
+        client_id=client_id,
+        requested_claim_paths=requested_claim_paths,
+        top_level_sd_only=top_level_sd_only,
+    )
+
+
+def build_vp_token_from_stored_credential(
+    *,
+    raw_credential: str,
+    nonce: str,
+    client_id: str = "",
+    requested_claim_paths: list[list[str]] | None = None,
+    top_level_sd_only: bool = False,
+) -> str:
+    """Attach a fresh KB-JWT to an issuer-signed in-memory wallet credential."""
     issuer_jwt, disclosures, _stored_kb = split_sd_jwt(raw_credential)
     issuer_payload = decode_jwt_payload(issuer_jwt)
     sd_alg = str(issuer_payload.get("_sd_alg") or DEFAULT_SD_ALG)
@@ -135,7 +154,7 @@ def build_vp_token(
         disclosures = _top_level_sd_disclosures(disclosures, issuer_payload=issuer_payload, sd_alg=sd_alg)
     disclosures = _filter_disclosures_by_requested_claims(disclosures, requested_claim_paths)
 
-    credential_claims = load_credential_claims(credential_name)
+    credential_claims = merge_disclosed_claims(issuer_payload, disclosures)
     wallet_jwk = load_jwk("wallet.jwk")
 
     _assert_holder_binding_matches_credential(credential_claims=credential_claims, wallet_jwk=wallet_jwk)

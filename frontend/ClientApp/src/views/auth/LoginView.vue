@@ -20,6 +20,7 @@ const router = useRouter()
 const presentationUrl = ref('')
 const copyHint = ref('')
 const qrCodeDataUrl = useQRCode(computed(() => presentationUrl.value || ''))
+const hydraChallengeBound = ref(Boolean(sessionStorage.getItem('dcs_hydra_challenge_bound_state')))
 
 let pollTimer: ReturnType<typeof setInterval> | undefined
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -326,7 +327,13 @@ async function copyPresentationUrl() {
 
 <template>
   <div class="flex min-h-screen flex-col items-center justify-center gap-6 bg-base-200 p-6">
-    <div v-if="presentationUrl" class="card w-full max-w-md bg-base-100 shadow-md">
+    <div
+      v-if="presentationUrl"
+      class="card w-full max-w-md bg-base-100 shadow-md"
+      data-test-id="auth-oid4vp-presentation"
+      :data-presentation-url="presentationUrl"
+      :data-login-challenge-bound="String(hydraChallengeBound)"
+    >
       <div class="card-body items-center gap-4 text-center">
         <h1 class="card-title text-lg">Sign in with wallet</h1>
         <p class="text-sm opacity-80">Scan the QR code with your wallet.</p>

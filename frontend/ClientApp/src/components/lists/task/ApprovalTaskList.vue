@@ -136,6 +136,10 @@ onUnmounted(() => stateFilterStore.reset())
               <div>Creation date: {{ new Date(task.created_at).toLocaleDateString() }}</div>
               <div class="card-actions justify-end">
                 <RouterLink
+                  :data-test-id="
+                    task.type === 'template' ? 'template-approval-task-open' : 'contract-approval-task-open'
+                  "
+                  :data-test-key="task.did"
                   :to="{
                     name: resolveViewRouteName(task),
                     params: { did: task.did },

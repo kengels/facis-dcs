@@ -62,7 +62,7 @@ function onModalClose() {
         <h3 class="text-lg font-bold">Verification Findings</h3>
         <p v-if="error" class="mb-5 text-xs text-error">{{ error }}</p>
 
-        <div v-if="findings.length > 0" class="mt-4 mb-4">
+        <div v-if="findings.length > 0" data-test-id="template-verification-result" class="mt-4 mb-4">
           <div
             v-for="(finding, idx) in findings"
             :key="idx"
@@ -71,6 +71,7 @@ function onModalClose() {
             <div class="card-title p-3 text-sm">{{ finding }}</div>
           </div>
         </div>
+        <p v-else data-test-id="template-verification-result" class="mt-4 text-success">Valid — no findings</p>
 
         <div class="modal-action mt-2">
           <button type="button" class="btn btn-outline" @click="onModalClose">Close</button>

@@ -299,6 +299,7 @@ const exportPDF = async () => {
         <button class="btn btn-outline md:w-32" @click="exportPDF">Export PDF</button>
         <button
           v-if="contract?.state === ContractState.reviewed"
+          data-test-id="contract-approval-reject"
           class="btn flex-1 btn-primary"
           :disabled="!isApprover || isSubmitting"
           @click="reject"
@@ -308,6 +309,7 @@ const exportPDF = async () => {
         </button>
         <button
           v-if="contract?.state === ContractState.reviewed"
+          data-test-id="contract-approval-resubmit"
           class="btn flex-1 btn-primary"
           :disabled="!isApprover || isSubmitting"
           @click="resubmit"
@@ -317,6 +319,7 @@ const exportPDF = async () => {
         </button>
         <button
           v-if="contract?.state === ContractState.reviewed"
+          data-test-id="contract-approval-approve"
           class="btn flex-1 btn-primary"
           :disabled="!isApprover || isSubmitting"
           @click="approve"
@@ -326,7 +329,11 @@ const exportPDF = async () => {
         </button>
         <ContractManagerActions v-if="contract" :contract="contract" class="btn flex-1 btn-primary" />
       </div>
-      <ConfirmationModal ref="confirmation-dialog" />
+      <ConfirmationModal
+        ref="confirmation-dialog"
+        editor-test-id="contract-approval-rejection-reason"
+        confirm-test-id="contract-approval-decision-submit"
+      />
     </div>
   </div>
 </template>

@@ -14,6 +14,7 @@ const emit = defineEmits<{
   <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
     <button
       type="button"
+      data-test-id="template-type-contract"
       class="flex min-h-50 flex-col justify-center rounded-2xl border-2 p-8 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       :class="
         modelValue === TemplateType.contractTemplate
@@ -30,6 +31,7 @@ const emit = defineEmits<{
     </button>
     <button
       type="button"
+      data-test-id="template-type-component"
       class="flex min-h-50 flex-col justify-center rounded-2xl border-2 p-8 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       :class="
         modelValue === TemplateType.component

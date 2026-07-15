@@ -109,6 +109,22 @@ type ComplianceRiskEvent struct {
 	UserRoles   userrole.UserRoles `json:"user_roles"`
 }
 
+type IncidentReportedEvent struct {
+	IncidentID           string             `json:"incident_id"`
+	ResourceDID          string             `json:"resource_did"`
+	AffectedContractDIDs []string           `json:"affected_contract_dids"`
+	AffectedTemplateDIDs []string           `json:"affected_template_dids"`
+	FindingRefs          []string           `json:"finding_refs"`
+	Reason               string             `json:"reason"`
+	ReportedBy           string             `json:"reported_by"`
+	ReportedAt           time.Time          `json:"reported_at"`
+	HolderDID            string             `json:"holder_did"`
+	UserRoles            userrole.UserRoles `json:"user_roles"`
+}
+
+func (e IncidentReportedEvent) EventType() string { return "PAC_INCIDENT_REPORTED" }
+func (e IncidentReportedEvent) GetDID() string    { return e.ResourceDID }
+
 // EventType implements the Event interface.
 func (e ComplianceRiskEvent) EventType() string {
 	return "PAC_COMPLIANCE_RISK"

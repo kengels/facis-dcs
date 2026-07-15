@@ -36,6 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           make -C tests/bdd run_bdd_kind_ci \
+            PLAYWRIGHT_INSTALL_ARGS="--with-deps chromium" \
             KIND_CLUSTER_NAME=dcs-bdd \
             DOCKER_IMAGE_REPOSITORY=digital-contracting-service \
             DOCKER_IMAGE_TAG=bdd
@@ -72,12 +73,23 @@ jobs:
             echo "No coverage data file found (.coverage) or coverage binary missing; skipping coverage summary."
           fi
 
-      - name: Publish BDD test report
-        if: always() && hashFiles('tests/bdd/.reports/junit/*.xml') != ''
+      - name: Publish API BDD test report
+        if: always() && hashFiles('tests/bdd/.reports/api/junit/*.xml') != ''
         uses: dorny/test-reporter@v1
         with:
-          name: BDD Test Results
-          path: tests/bdd/.reports/junit/*.xml
+          name: API BDD Test Results
+          path: tests/bdd/.reports/api/junit/*.xml
+          reporter: java-junit
+          fail-on-error: false
+          list-suites: all
+          list-tests: all
+
+      - name: Publish UI BDD test report
+        if: always() && hashFiles('tests/bdd/.reports/ui/junit/**/*.xml') != ''
+        uses: dorny/test-reporter@v1
+        with:
+          name: UI BDD Test Results
+          path: tests/bdd/.reports/ui/junit/**/*.xml
           reporter: java-junit
           fail-on-error: false
           list-suites: all

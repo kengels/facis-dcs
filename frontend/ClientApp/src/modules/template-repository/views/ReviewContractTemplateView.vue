@@ -161,17 +161,23 @@ const exportPDF = async () => {
     <!-- Pinned Footer -->
     <div v-if="hasDid" class="sticky bottom-0 shrink-0 border-t border-base-300 bg-base-100">
       <!-- Comments container -->
-      <ConfirmationModal ref="comment-dialog" />
+      <ConfirmationModal
+        ref="comment-dialog"
+        editor-test-id="template-review-comment"
+        confirm-test-id="template-review-comment-submit"
+      />
       <div class="mx-auto flex max-w-4xl flex-col gap-3 px-6 py-3 md:flex-row">
         <button class="btn btn-outline md:w-32" @click="router.back()">Back</button>
         <button class="btn btn-outline md:w-32" @click="exportPDF">Export PDF</button>
         <CopyTemplateButton :disabled="!isCreator && !isManager" class="btn flex-1 btn-primary" />
         <!-- Verify / Return to draft / request changes -->
         <VerificationFindingsDialog
+          data-test-id="template-review-verify"
           class="btn flex-1 btn-primary"
           :disabled="(!isReviewer && !isManager) || isSubmitting"
         />
         <button
+          data-test-id="template-review-return-draft"
           class="btn flex-1 btn-primary"
           :disabled="(!isReviewer && !isManager) || isSubmitting"
           @click="returnToDraft"
@@ -181,6 +187,7 @@ const exportPDF = async () => {
         </button>
         <!-- Complete review (verify then forward to approval) -->
         <button
+          data-test-id="template-review-forward-approval"
           class="btn flex-1 btn-primary"
           :disabled="(!isReviewer && !isManager) || isSubmitting"
           @click="forwardToApproval"

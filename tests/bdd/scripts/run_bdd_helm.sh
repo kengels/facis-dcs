@@ -31,6 +31,9 @@ trap cleanup EXIT
 
 BDD_PUBLIC_ORIGIN="${BDD_PUBLIC_ORIGIN:-http://localhost:18080}"
 export BDD_PUBLIC_ORIGIN
+export BDD_DCS_UI_URL="${BDD_DCS_UI_URL:-${BDD_PUBLIC_ORIGIN}/digital-contracting-service/ui}"
+export BDD_UI_REPORT_DIR="${BDD_UI_REPORT_DIR:-$PWD/.reports/ui}"
+export BDD_CREDENTIAL_STATUSLIST_SERVICE_URL="${BDD_CREDENTIAL_STATUSLIST_SERVICE_URL:-http://dcs-statuslist-service:8080}"
 export STATUSLIST_SERVICE_URL="${STATUSLIST_SERVICE_URL:-${BDD_PUBLIC_ORIGIN}/statuslist}"
 
 # BDD_DCS_BASE_URL_A / _B: the two-instance (@two-instance) peer-trust
@@ -77,7 +80,7 @@ IPFS_POD="$("${KUBECTL_BIN}" -n "${K8S_NAMESPACE}" get pod \
 # reliable failure.
 export BDD_IPFS_EXEC="${KUBECTL_BIN} -n ${K8S_NAMESPACE} exec -i ${IPFS_POD} --"
 
-mkdir -p .tmp .reports/junit
+mkdir -p .tmp .reports/junit .reports/ui
 REPORTS_JUNIT_DIR="$PWD/.reports/junit"
 
 # Emits `--resolve <host>:<port>:127.0.0.1` for a URL's host[:port], so

@@ -5,9 +5,10 @@ import { useDcsDraftStore } from '@template-repository/store/dcsDraftStore'
 import { useTemplateEditorUiStore } from '@template-repository/store/templateEditorUiStore'
 import { storeToRefs } from 'pinia'
 import { type Ref, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import TemplateManagerActions from '@/components/template/TemplateManagerActions.vue'
+import { ROUTES } from '@/router/router'
 import { contractTemplateService } from '@/services/contract-template-service'
-import { useNavStore } from '@/stores/nav-store'
 import { TemplateState } from '@/types/contract-template-state'
 import CopyTemplateButton from '../components/CopyTemplateButton.vue'
 import type { PartialContractTemplate } from '@/models/contract-template'
@@ -17,7 +18,7 @@ const props = defineProps<{
   embedded?: boolean
 }>()
 
-const navStore = useNavStore()
+const router = useRouter()
 
 const templateEditorUiStore = useTemplateEditorUiStore()
 const draftStore = useDcsDraftStore()
@@ -75,7 +76,7 @@ const submitTemplate = async () => {
       updated_at: draftStore.updated_at,
     })
     if (response?.did) {
-      await navStore.goToPreviousRoute()
+      await router.push({ name: ROUTES.TEMPLATES.LIST, query: { saved_did: response.did } })
     }
   } catch (error) {
     console.error('Template Submission failed', error)
@@ -90,7 +91,7 @@ const submitRejectedTemplate = async () => {
       updated_at: draftStore.updated_at,
     })
     if (response.did) {
-      await navStore.goToPreviousRoute()
+      await router.push({ name: ROUTES.TEMPLATES.LIST, query: { saved_did: response.did } })
     }
   } catch (error) {
     console.error('Template Submission failed', error)
@@ -123,11 +124,17 @@ const exportPDF = async () => {
         <button class="btn btn-outline md:w-32" @click="exportPDF">Export PDF</button>
         <CopyTemplateButton :disabled="!isCreator && !isManager" class="btn flex-1 btn-primary" />
         <template v-if="isCreator || isManager">
-          <button v-if="state === TemplateState.draft" class="btn flex-1 btn-primary" @click="submitTemplate">
+          <button
+            v-if="state === TemplateState.draft"
+            data-test-id="template-submit-review"
+            class="btn flex-1 btn-primary"
+            @click="submitTemplate"
+          >
             Submit
           </button>
           <button
             v-if="state === TemplateState.rejected"
+            data-test-id="template-resubmit-review"
             class="btn flex-1 btn-primary"
             @click="submitRejectedTemplate"
           >

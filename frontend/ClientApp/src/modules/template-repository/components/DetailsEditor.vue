@@ -153,6 +153,7 @@ const removeComponentTemplate = (item: ComponentTemplateKey) => {
       <legend class="fieldset-legend">Global Name</legend>
       <input
         v-model="name"
+        :data-test-id="uiStore.isTemplateEditable ? 'template-editor-name' : 'template-details-name'"
         class="input-bordered input w-full"
         type="text"
         required
@@ -164,6 +165,7 @@ const removeComponentTemplate = (item: ComponentTemplateKey) => {
       <legend class="fieldset-legend">Base Description</legend>
       <textarea
         v-model="description"
+        :data-test-id="uiStore.isTemplateEditable ? 'template-editor-description' : 'template-details-description'"
         class="textarea-bordered textarea h-24 w-full"
         required
         :disabled="!uiStore.isTemplateEditable"
@@ -173,6 +175,7 @@ const removeComponentTemplate = (item: ComponentTemplateKey) => {
     <!-- Component templates (only for Contract type) -->
     <fieldset v-if="templateType === TemplateType.contractTemplate" class="fieldset border-none p-0">
       <legend
+        data-test-id="template-component-add"
         class="fieldset-legend inline-flex cursor-pointer items-center gap-1.5 select-none"
         @click="showComponentPicker = !showComponentPicker"
       >
@@ -193,6 +196,7 @@ const removeComponentTemplate = (item: ComponentTemplateKey) => {
       <div v-show="showComponentPicker" class="mt-1">
         <input
           v-model="componentSearchQuery"
+          data-test-id="template-component-reference"
           class="input-bordered input input-sm w-full"
           placeholder="Search templates…"
         />
@@ -204,7 +208,13 @@ const removeComponentTemplate = (item: ComponentTemplateKey) => {
             </span>
           </li>
           <li v-for="t in filteredComponentTemplates" :key="`${t.did}-${t.version}-${t.document_number}`">
-            <button type="button" class="group flex flex-col items-start gap-0" @click="addComponentTemplate(t)">
+            <button
+              type="button"
+              class="group flex flex-col items-start gap-0"
+              data-test-id="template-component-save"
+              :data-test-key="t.did"
+              @click="addComponentTemplate(t)"
+            >
               <span class="text-sm font-medium">{{ t.name }}</span>
               <span
                 class="max-h-0 overflow-hidden text-xs text-base-content/50 italic transition-all duration-200 ease-in-out group-hover:max-h-12"
@@ -221,6 +231,8 @@ const removeComponentTemplate = (item: ComponentTemplateKey) => {
         <div
           v-for="item in selectedComponents"
           :key="`${item.did}-${item.version}-${item.document_number}`"
+          data-test-id="template-hierarchy-node"
+          :data-test-key="item.did"
           class="badge gap-1 badge-outline py-3 badge-primary"
         >
           <span>{{ getComponentTemplateName(item) }}</span>

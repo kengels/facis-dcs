@@ -52,6 +52,7 @@ type SigningTaskItem struct {
 	ContractVersion int
 	State           signingstatus.SigningStatus
 	SignerDID       string
+	FieldName       string
 	CreatedAt       time.Time
 }
 
@@ -166,6 +167,7 @@ func (h *GetAllMetadataHandler) Handle(ctx context.Context, query GetAllMetadata
 			State:           state,
 			ContractVersion: contractVersion,
 			SignerDID:       data.SignerDID,
+			FieldName:       data.FieldName,
 			CreatedAt:       data.CreatedAt,
 		})
 	}

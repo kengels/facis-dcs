@@ -463,6 +463,7 @@ const exportPDF = async () => {
               <div v-show="activeTab === 'diff'">
                 <ContractHistoryDiffView
                   v-if="contract"
+                  data-test-id="contract-version-diff"
                   :contract-did="contract.did"
                   :contract-state="contract.state"
                   :current-contract-data="currentContractData"
@@ -497,6 +498,7 @@ const exportPDF = async () => {
         <button class="btn btn-outline md:w-32" @click="exportPDF">Export PDF</button>
         <button
           v-if="contract?.state === ContractState.negotiation"
+          data-test-id="contract-negotiation-submit"
           class="btn flex-1 btn-primary"
           :disabled="isSubmitting || !hasChangeRequest || !!compareChangesData"
           @click="negotiateContractChange"

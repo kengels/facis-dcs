@@ -53,6 +53,7 @@ const responseMapper = (response: ContractTemplateSearchResponse) =>
     :items="templates"
     :filter-labels="filterLabels"
     :empty-item="emptyTemplate"
+    data-test-prefix="template-search"
     :search-fn="async (request) => responseMapper(await contractTemplateService.search(request))"
     placeholder="Search templates"
     @search-result="(result) => emit('searchResult', result)"

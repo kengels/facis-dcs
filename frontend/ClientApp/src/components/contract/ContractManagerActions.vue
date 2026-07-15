@@ -92,6 +92,17 @@ const terminate = async () => {
   <button v-if="canDeploy" :class="[filteredClass, 'btn-primary']" :disabled="deploying" @click="deploy">
     {{ deploying ? 'Deploying…' : 'Deploy' }}
   </button>
-  <button v-if="canTerminate" :class="[filteredClass, 'btn-error']" @click="terminate">Terminate</button>
-  <ConfirmationModal ref="confirmation-modal" />
+  <button
+    v-if="canTerminate"
+    data-test-id="contract-manager-terminate"
+    :class="[filteredClass, 'btn-error']"
+    @click="terminate"
+  >
+    Terminate
+  </button>
+  <ConfirmationModal
+    ref="confirmation-modal"
+    editor-test-id="contract-termination-reason"
+    confirm-test-id="contract-termination-submit"
+  />
 </template>

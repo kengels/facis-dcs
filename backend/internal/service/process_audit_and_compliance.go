@@ -535,7 +535,48 @@ func (s *processAuditAndCompliancesrvc) Monitor(ctx context.Context, p *processa
 	}, nil
 }
 
-func (s *processAuditAndCompliancesrvc) IncidentReport(ctx context.Context, p *processauditandcompliance.IncidentReportPayload) (res any, err error) {
-	log.Printf(ctx, "processAuditAndCompliance.incident_report")
-	return
+func (s *processAuditAndCompliancesrvc) IncidentReport(ctx context.Context, p *processauditandcompliance.PACIncidentReportRequest) (*processauditandcompliance.PACIncidentReportResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
+	defer cancel()
+
+	resources := append(append([]string{}, p.AffectedContractDids...), p.AffectedTemplateDids...)
+	if len(resources) == 0 {
+		return nil, processauditandcompliance.MakeBadRequest(fmt.Errorf("at least one affected contract or template DID is required"))
+	}
+	reportedAt := time.Now().UTC()
+	incidentID := fmt.Sprintf("incident-%d", reportedAt.UnixNano())
+	tx, err := s.DB.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, processauditandcompliance.MakeInternalError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	seen := make(map[string]struct{}, len(resources))
+	for _, resourceDID := range resources {
+		resourceDID = strings.TrimSpace(resourceDID)
+		if resourceDID == "" {
+			return nil, processauditandcompliance.MakeBadRequest(fmt.Errorf("affected DIDs must not be empty"))
+		}
+		if _, exists := seen[resourceDID]; exists {
+			continue
+		}
+		seen[resourceDID] = struct{}{}
+		evt := pacevent.IncidentReportedEvent{
+			IncidentID: incidentID, ResourceDID: resourceDID,
+			AffectedContractDIDs: p.AffectedContractDids, AffectedTemplateDIDs: p.AffectedTemplateDids,
+			FindingRefs: p.FindingRefs, Reason: p.Reason,
+			ReportedBy: middleware.GetParticipantID(ctx), ReportedAt: reportedAt,
+			HolderDID: middleware.GetHolderDID(ctx), UserRoles: middleware.GetUserRoles(ctx),
+		}
+		if err := baseevent.Create(ctx, tx, evt, componenttype.ProcessAuditAndCompliance); err != nil {
+			return nil, processauditandcompliance.MakeInternalError(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, processauditandcompliance.MakeInternalError(err)
+	}
+	return &processauditandcompliance.PACIncidentReportResponse{
+		IncidentID: incidentID, AffectedContractDids: p.AffectedContractDids,
+		AffectedTemplateDids: p.AffectedTemplateDids, FindingRefs: p.FindingRefs,
+		Reason: p.Reason, ReportedAt: reportedAt.Format(time.RFC3339),
+	}, nil
 }

@@ -1,0 +1,11 @@
+FROM mcr.microsoft.com/playwright/python:v1.52.0-noble
+
+WORKDIR /workspace
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# This pinned image is the reproducible browser runtime reference for the
+# Python Playwright version installed by tests/bdd/Makefile. The kind runner
+# stays on the host so it can use the existing kubectl/Helm port-forwards.

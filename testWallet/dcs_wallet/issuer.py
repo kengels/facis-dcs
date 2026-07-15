@@ -210,6 +210,8 @@ def issue_credential_from_template(
     wallet_private: dict[str, Any],
     issuer_did: str = DEFAULT_ISSUER_DID,
     credential_status: dict[str, Any] | None = None,
+    statuslist_service_base: str | None = None,
+    statuslist_tenant: str | None = None,
 ) -> str:
     with template_path.open(encoding="utf-8") as fh:
         template_data = json.load(fh)
@@ -226,6 +228,8 @@ def issue_credential_from_template(
         wallet_private=wallet_private,
         issuer_did=issuer_did,
         credential_status=credential_status,
+        statuslist_service_base=statuslist_service_base,
+        statuslist_tenant=statuslist_tenant,
     )
 
 

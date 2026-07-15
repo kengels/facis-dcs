@@ -297,6 +297,7 @@ const exportPDF = async () => {
         <button class="btn btn-outline md:w-32" @click="exportPDF">Export PDF</button>
         <button
           v-if="contract?.state === ContractState.submitted"
+          data-test-id="contract-review-verify"
           class="btn flex-1 btn-primary"
           :disabled="!isReviewer || isSubmitting"
           @click="verifyContract"
@@ -306,6 +307,7 @@ const exportPDF = async () => {
         </button>
         <button
           v-if="contract?.state === ContractState.submitted"
+          data-test-id="contract-review-request-change"
           class="btn flex-1 btn-primary"
           :disabled="!isReviewer || isSubmitting"
           @click="returnToNegotiation"
@@ -315,6 +317,7 @@ const exportPDF = async () => {
         </button>
         <button
           v-if="contract?.state === ContractState.submitted"
+          data-test-id="contract-review-forward-approval"
           class="btn flex-1 btn-primary"
           :disabled="!isReviewer || isSubmitting || !verificationResult.isValid"
           @click="forwardToApproval"
@@ -324,7 +327,11 @@ const exportPDF = async () => {
         </button>
         <ContractManagerActions v-if="contract" :contract="contract" class="btn flex-1 btn-primary" />
       </div>
-      <ConfirmationModal ref="confirmation-dialog" />
+      <ConfirmationModal
+        ref="confirmation-dialog"
+        editor-test-id="contract-review-finding"
+        confirm-test-id="contract-review-finding-submit"
+      />
     </div>
   </div>
 </template>

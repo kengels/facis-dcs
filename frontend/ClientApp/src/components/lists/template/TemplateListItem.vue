@@ -47,7 +47,7 @@ function getTemplateLink(template: PartialContractTemplate): string {
 </script>
 
 <template>
-  <li class="list-row w-full min-w-0">
+  <li data-test-id="template-search-result" :data-test-key="template.did" class="list-row w-full min-w-0">
     <div class="list-col-grow card w-full min-w-0 border-base-content/10 bg-base-100 card-border hover:bg-base-300">
       <div class="card-body min-w-0">
         <div class="-mt-9 mr-1 -ml-1 grid w-full grid-cols-3 items-center">
@@ -81,12 +81,16 @@ function getTemplateLink(template: PartialContractTemplate): string {
           </div>
           <div class="card-actions justify-end">
             <RouterLink
+              data-test-id="template-search-result-open"
+              :data-test-key="template.did"
               :to="{ name: resolveViewRouteName, params: { did: template.did } }"
               class="btn btn-sm btn-primary"
             >
               View
             </RouterLink>
             <RouterLink
+              data-test-id="template-search-result-edit"
+              :data-test-key="template.did"
               :to="
                 canEdit
                   ? {

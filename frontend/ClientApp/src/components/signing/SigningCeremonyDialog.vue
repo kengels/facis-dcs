@@ -120,10 +120,20 @@ defineExpose<DialogExpose>({ reveal })
           <p class="text-sm opacity-70">Starting signing ceremony…</p>
         </div>
 
-        <div v-else-if="phase === 'pending'" class="flex flex-col items-center gap-3">
+        <div
+          v-else-if="phase === 'pending'"
+          class="flex flex-col items-center gap-3"
+          data-test-id="signing-oid4vp-presentation"
+        >
           <p class="text-sm opacity-80">Scan the QR code with your wallet to present your PID and sign.</p>
           <figure class="rounded-box bg-white p-3">
-            <img v-if="qrCodeDataUrl" :src="qrCodeDataUrl" alt="Signing ceremony QR code" class="mx-auto h-48 w-48" />
+            <img
+              v-if="qrCodeDataUrl"
+              :src="qrCodeDataUrl"
+              :data-presentation-url="walletUri"
+              alt="Signing ceremony QR code"
+              class="mx-auto h-48 w-48"
+            />
           </figure>
           <button type="button" class="btn btn-sm btn-primary" @click="copyWalletUri">Copy link</button>
           <p v-if="copyHint" class="text-sm text-warning">{{ copyHint }}</p>

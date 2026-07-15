@@ -2,6 +2,11 @@
 import { useConfirmDialog } from '@vueuse/core'
 import { computed, type Ref, ref, useTemplateRef, watch } from 'vue'
 
+defineProps<{
+  editorTestId?: string
+  confirmTestId?: string
+}>()
+
 interface Editor {
   requiredText: boolean
   placeholder?: string
@@ -67,6 +72,7 @@ defineExpose<ModalExpose>({ reveal: reveal })
       <div v-if="modalData.editor" class="mx-auto flex max-w-4xl flex-col gap-3 py-3 md:flex-row">
         <textarea
           v-model="inputText"
+          :data-test-id="editorTestId"
           class="textarea mt-0.5 min-h-10 w-full resize-y rounded-lg border textarea-ghost border-base-300/50 text-sm textarea-sm"
           :placeholder="modalData.editor.placeholder ?? 'Comment'"
           rows="4"
@@ -74,6 +80,7 @@ defineExpose<ModalExpose>({ reveal: reveal })
       </div>
       <div class="modal-action flex-col" :class="{ 'flex-row-reverse justify-start': hasEditor }">
         <button
+          :data-test-id="confirmTestId"
           class="btn btn-sm btn-primary"
           :class="{ 'btn-disabled': inputRequired }"
           :disabled="inputRequired"

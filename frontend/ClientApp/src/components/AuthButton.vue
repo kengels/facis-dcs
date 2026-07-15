@@ -11,7 +11,7 @@ const logout = () => authenticationService.logout()
 </script>
 
 <template>
-  <button v-if="isAuthenticated" @click="logout">
+  <button v-if="isAuthenticated" data-test-id="auth-logout" @click="logout">
     <ArrowLeftStartOnRectangleIcon class="size-4" />
     Log out
   </button>

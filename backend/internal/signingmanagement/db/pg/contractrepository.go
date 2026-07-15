@@ -216,10 +216,10 @@ func (r *PostgresContractRepo) ReadAllSigningTasks(ctx context.Context, tx *sqlx
 
 	var tasks []db.ContractSigningTask
 	err := tx.SelectContext(ctx, &tasks,
-		`SELECT cs.contract_did, c.contract_version, cs.signer_did, cs.created_at
+		`SELECT cs.contract_did, c.contract_version, cs.status AS state, cs.signer_did, cs.field_name, cs.created_at
 		   FROM contract_signatures cs
 		   JOIN contracts c ON c.did = cs.contract_did
-		  WHERE c.state = 'APPROVED' AND cs.status = 'PENDING'
+		  WHERE c.state = 'APPROVED' AND cs.status = 'PENDING' AND cs.field_name IS NOT NULL
 		  ORDER BY cs.created_at DESC`,
 	)
 	if err != nil {

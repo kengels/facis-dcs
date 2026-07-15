@@ -66,6 +66,27 @@ var PACMonitorResponse = Type("PACMonitorResponse", func() {
 	Required("checked_at", "risks")
 })
 
+var PACIncidentReportRequest = Type("PACIncidentReportRequest", func() {
+	Description("A compliance incident linked to concrete contracts/templates and monitoring findings")
+	Token("token", String, "JWT token")
+	Attribute("affected_contract_dids", ArrayOf(String), "Affected contract DIDs")
+	Attribute("affected_template_dids", ArrayOf(String), "Affected template DIDs")
+	Attribute("finding_refs", ArrayOf(String), "References to selected monitoring findings", func() { MinLength(1) })
+	Attribute("reason", String, "Investigation reason", func() { MinLength(1) })
+	Required("affected_contract_dids", "affected_template_dids", "finding_refs", "reason")
+})
+
+var PACIncidentReportResponse = Type("PACIncidentReportResponse", func() {
+	Description("Persisted compliance incident")
+	Attribute("incident_id", String, "Stable identifier of the incident")
+	Attribute("affected_contract_dids", ArrayOf(String), "Affected contract DIDs")
+	Attribute("affected_template_dids", ArrayOf(String), "Affected template DIDs")
+	Attribute("finding_refs", ArrayOf(String), "Selected monitoring finding references")
+	Attribute("reason", String, "Investigation reason")
+	Attribute("reported_at", String, "Report timestamp")
+	Required("incident_id", "affected_contract_dids", "affected_template_dids", "finding_refs", "reason", "reported_at")
+})
+
 // Process Audit & Compliance Management Service  (/pac/...)
 var _ = Service("ProcessAuditAndCompliance", func() {
 	Description("Process Audit & Compliance Management APIs (/pac/...)")
@@ -157,13 +178,15 @@ var _ = Service("ProcessAuditAndCompliance", func() {
 		Security(JWTAuth, func() {
 			Scope("Compliance Officer")
 		})
-		Payload(func() {
-			Token("token", String, "JWT token")
-		})
+		Payload(PACIncidentReportRequest)
 		HTTP(func() {
-			POST("/pac/report")
+			POST("/pac/incidents")
 			Response(StatusOK)
+			Response("bad_request", StatusBadRequest)
+			Response("internal_error", StatusInternalServerError)
 		})
-		Result(Any)
+		Result(PACIncidentReportResponse)
+		Error("bad_request", ErrorResult, "Bad request")
+		Error("internal_error", ErrorResult, "Internal server error")
 	})
 })

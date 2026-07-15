@@ -1,6 +1,7 @@
 """Behave environment hooks for DCS BDD tests."""
 
 import os
+import re
 import socket
 import sys
 from pathlib import Path
@@ -8,6 +9,41 @@ import psycopg2
 
 
 SKIP_TAGS = {"skip", "skipped"}
+UI_TAG = "ui"
+
+
+def _has_tag(node, wanted):
+	tags = []
+	tags.extend(getattr(node, "effective_tags", ()) or ())
+	tags.extend(getattr(node, "tags", ()) or ())
+	feature = getattr(node, "feature", None)
+	if feature is not None:
+		tags.extend(getattr(feature, "tags", ()) or ())
+	return any(_normalize_tag(tag) == wanted for tag in tags)
+
+
+def _safe_artifact_name(name):
+	value = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(name)).strip("-.")
+	return value[:120] or "scenario"
+
+
+def _ensure_browser(context):
+	if getattr(context, "browser", None) is not None:
+		return
+	try:
+		from playwright.sync_api import sync_playwright
+	except ImportError as exc:
+		raise RuntimeError(
+			"@ui scenarios require Playwright; run "
+			"'make -C tests/bdd setup_playwright'"
+		) from exc
+	context.playwright = sync_playwright().start()
+	context.browser = context.playwright.chromium.launch(headless=True)
+
+
+def _ui_scenario_failed(scenario):
+	status = getattr(scenario, "status", None)
+	return getattr(status, "name", str(status)).lower() == "failed"
 
 
 def _install_localhost_resolver_fallback():
@@ -112,9 +148,46 @@ def _cleanup_database(cursor):
 def before_scenario(context, scenario):
 	if _scenario_has_skip_tag(scenario):
 		scenario.skip('Skipped by scenario tag "@skip"')
+		return
 
 	if "clean_db" in scenario.tags:
 		cleanup_database(context)
+
+	if _has_tag(scenario, UI_TAG):
+		_ensure_browser(context)
+		artifact_dir = (
+			Path(os.getenv("BDD_UI_REPORT_DIR", "tests/bdd/.reports/ui"))
+			/ _safe_artifact_name(scenario.feature.name)
+			/ _safe_artifact_name(scenario.name)
+		)
+		artifact_dir.mkdir(parents=True, exist_ok=True)
+		context.ui_artifact_dir = artifact_dir
+		context.browser_context = context.browser.new_context(
+			accept_downloads=True,
+			record_video_dir=str(artifact_dir / "video"),
+			viewport={"width": 1440, "height": 1000},
+		)
+		context.browser_context.tracing.start(screenshots=True, snapshots=True, sources=True)
+		context.page = context.browser_context.new_page()
+
+
+def after_scenario(context, scenario):
+	if not _has_tag(scenario, UI_TAG) or getattr(context, "browser_context", None) is None:
+		return
+
+	failed = _ui_scenario_failed(scenario)
+	artifact_dir = context.ui_artifact_dir
+	try:
+		if failed and getattr(context, "page", None) is not None:
+			context.page.screenshot(path=str(artifact_dir / "failure.png"), full_page=True)
+		if failed:
+			context.browser_context.tracing.stop(path=str(artifact_dir / "trace.zip"))
+		else:
+			context.browser_context.tracing.stop()
+	finally:
+		context.browser_context.close()
+		context.page = None
+		context.browser_context = None
 
 
 def before_all(context):
@@ -141,6 +214,10 @@ def before_all(context):
 	# runners without being wrong.
 	context.http_timeout_seconds = float(os.getenv("BDD_HTTP_TIMEOUT_SECONDS", "60"))
 	context.aliases = {}
+	context.playwright = None
+	context.browser = None
+	context.browser_context = None
+	context.page = None
 
 	try:
 		context.db = psycopg2.connect(
@@ -153,4 +230,8 @@ def before_all(context):
 
 
 def after_all(context):
-    context.db.close()
+	if getattr(context, "browser", None) is not None:
+		context.browser.close()
+	if getattr(context, "playwright", None) is not None:
+		context.playwright.stop()
+	context.db.close()

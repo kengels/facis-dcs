@@ -104,11 +104,27 @@ async function register() {
 </script>
 
 <template>
-  <button v-if="showRegisterButton" :class="$attrs.class" @click="register">Register</button>
+  <button
+    v-if="showRegisterButton"
+    data-test-id="template-manager-register"
+    :data-test-key="template.did"
+    :class="$attrs.class"
+    @click="register"
+  >
+    Register
+  </button>
   <button v-if="showPublishButton" :class="$attrs.class" :disabled="isPublishing" @click="publish">
     <span v-if="isPublishing" class="loading loading-sm loading-spinner"></span>
     Publish
   </button>
-  <button v-if="canArchive" :class="[filteredClass, 'btn-error']" @click="archive">Archive</button>
+  <button
+    v-if="canArchive"
+    data-test-id="template-manager-archive"
+    :data-test-key="template.did"
+    :class="[filteredClass, 'btn-error']"
+    @click="archive"
+  >
+    Archive
+  </button>
   <ConfirmationModal ref="confirmation-modal" />
 </template>

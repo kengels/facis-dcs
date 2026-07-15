@@ -129,6 +129,7 @@ type RevokeEvent struct {
 	DID             string             `json:"did"`
 	ContractVersion int                `json:"contract_version,omitempty"`
 	RevokedBy       string             `json:"revoked_by"`
+	Reason          string             `json:"reason"`
 	OccurredAt      time.Time          `json:"occurred_at"`
 	HolderDID       string             `json:"holder_did"`
 	UserRoles       userrole.UserRoles `json:"user_roles"`

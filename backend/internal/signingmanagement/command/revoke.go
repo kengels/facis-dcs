@@ -24,6 +24,7 @@ type RevokeCmd struct {
 	DID       string
 	SignerDID string
 	RevokedBy string
+	Reason    string
 	HolderDID string
 	UserRoles userrole.UserRoles
 }
@@ -75,6 +76,7 @@ func (h *Revoker) Handle(ctx context.Context, cmd RevokeCmd) error {
 		DID:             cmd.DID,
 		ContractVersion: processData.ContractVersion,
 		RevokedBy:       cmd.RevokedBy,
+		Reason:          cmd.Reason,
 		OccurredAt:      time.Now().UTC(),
 		HolderDID:       cmd.HolderDID,
 		UserRoles:       cmd.UserRoles,

@@ -17,7 +17,7 @@ from jwt.algorithms import ECAlgorithm
 from jwcrypto import jwe, jwk
 
 from dcs_wallet.credential import CREDENTIAL_EXT, decode_jwt_payload, load_credential_claims
-from dcs_wallet.presentation import build_vp_token
+from dcs_wallet.presentation import build_vp_token, build_vp_token_from_stored_credential, load_jwk
 from dcs_wallet.sdjwt import split_sd_jwt
 
 DCS_REQUEST_URI_MARKERS = (
@@ -541,13 +541,34 @@ def run_presentation_flow(
         return 1
 
     try:
-        vp_token = build_vp_token(
-            credential_name=chosen,
-            nonce=nonce,
-            client_id=client_id,
-            requested_claim_paths=query.claim_paths,
-            top_level_sd_only=ctx.finish_dcs_session,
-        )
+        dynamic_statuslist_base = os.environ.get("DCS_WALLET_STATUSLIST_SERVICE_BASE", "").strip()
+        if dynamic_statuslist_base:
+            from dcs_wallet.issuer import issue_credential_from_template
+
+            template_path = _credentials_dir() / f"{chosen}.template.json"
+            raw_credential = issue_credential_from_template(
+                template_path=template_path,
+                issuer_private=load_jwk("issuer-dev.jwk"),
+                wallet_private=load_jwk("wallet.jwk"),
+                credential_status=None,
+                statuslist_service_base=dynamic_statuslist_base,
+                statuslist_tenant=os.environ.get("DCS_WALLET_STATUSLIST_TENANT", "credential"),
+            )
+            vp_token = build_vp_token_from_stored_credential(
+                raw_credential=raw_credential,
+                nonce=nonce,
+                client_id=client_id,
+                requested_claim_paths=query.claim_paths,
+                top_level_sd_only=ctx.finish_dcs_session,
+            )
+        else:
+            vp_token = build_vp_token(
+                credential_name=chosen,
+                nonce=nonce,
+                client_id=client_id,
+                requested_claim_paths=query.claim_paths,
+                top_level_sd_only=ctx.finish_dcs_session,
+            )
     except Exception as exc:
         log("present", "FAILED to build VP", error=str(exc))
         return 1

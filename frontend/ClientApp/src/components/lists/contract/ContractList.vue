@@ -90,7 +90,13 @@ onUnmounted(() => stateFilterStore.reset())
   <ul class="list">
     <li class="flex flex-col justify-between px-4 tracking-wide sm:flex-row">
       <ContractListSearch :contracts="contracts" class="flex-1" @search-result="applySearchResult" />
-      <ListStateFilter label="Contract" :filters="contractStates" store-type="contracts" :disabled="!hasContracts" />
+      <ListStateFilter
+        data-test-id="contract-state-filter"
+        label="Contract"
+        :filters="contractStates"
+        store-type="contracts"
+        :disabled="!hasContracts"
+      />
       <ListSort v-model:sort-by="sortBy" v-model:sort-order="sortOrder" :sorter="sorter" :disabled="!hasContracts" />
     </li>
     <template v-if="filteredContracts.length > 0">

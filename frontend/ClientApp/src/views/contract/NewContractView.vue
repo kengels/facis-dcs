@@ -347,7 +347,12 @@ onBeforeRouteLeave(() => {
   <div class="flex h-full flex-col">
     <div v-if="!isEditMode" class="flex flex-1 flex-col">
       <div v-if="!selectedTemplate" class="flex flex-1 items-center justify-center px-6 py-20">
-        <select v-model="selectedTemplate" class="select w-150" :disabled="!hasApprovedTemplates">
+        <select
+          v-model="selectedTemplate"
+          data-test-id="contract-create-template"
+          class="select w-150"
+          :disabled="!hasApprovedTemplates"
+        >
           <option :value="null" disabled selected>
             {{ hasApprovedTemplates ? 'Pick a template' : 'No templates available' }}
           </option>
@@ -362,7 +367,11 @@ onBeforeRouteLeave(() => {
           <div class="flex items-end gap-4">
             <div class="flex-1">
               <p class="mb-1 text-xs font-semibold text-base-content/60">Template</p>
-              <select v-model="selectedTemplate" class="select w-full select-sm">
+              <select
+                v-model="selectedTemplate"
+                data-test-id="contract-create-template"
+                class="select w-full select-sm"
+              >
                 <option v-for="template in approvedTemplates" :key="template.did" :value="template">
                   Version {{ template.version }} - {{ template.name?.slice(0, 80)
                   }}{{ (template.name?.length ?? 0) > 80 ? '…' : '' }}
@@ -482,6 +491,7 @@ onBeforeRouteLeave(() => {
         />
         <button
           v-if="isEditMode"
+          data-test-id="contract-create-save-draft"
           class="btn flex-1 btn-primary"
           :disabled="isSubmitting || !canSubmit"
           @click="updateContract"
@@ -491,12 +501,14 @@ onBeforeRouteLeave(() => {
         </button>
         <ParticipantSelectionDialog
           v-if="contract?.state === ContractState.draft && canSubmitContract"
+          data-test-id="contract-submit-review"
           class="btn flex-1 btn-primary"
           :disabled="isSubmitting"
           @submit="submitContract"
         />
         <button
           v-else-if="contract?.state === ContractState.rejected && canSubmitContract"
+          data-test-id="contract-submit-review"
           class="btn flex-1 btn-primary"
           :disabled="isSubmitting"
           @click="submitRejectedContract"

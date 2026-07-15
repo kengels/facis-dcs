@@ -34,7 +34,7 @@ const originalContract = ref(Object.assign({}, contract.value))
     <div class="card-body gap-5">
       <h2 class="card-title justify-between text-sm">
         <div class="flex gap-2">Contract Details</div>
-        <div class="badge badge-sm badge-secondary">{{ contract.state }}</div>
+        <div data-test-id="contract-lifecycle-status" class="badge badge-sm badge-secondary">{{ contract.state }}</div>
       </h2>
 
       <fieldset class="fieldset border-none p-0">
@@ -43,7 +43,13 @@ const originalContract = ref(Object.assign({}, contract.value))
 
       <fieldset class="fieldset border-none p-0">
         <legend class="fieldset-legend">Base Template</legend>
-        <a class="badge badge-sm badge-primary" :href="getTemplateLink(contract)">{{ contract.template_did }}</a>
+        <a
+          data-test-id="contract-template-reference"
+          class="badge badge-sm badge-primary"
+          :href="getTemplateLink(contract)"
+        >
+          {{ contract.template_did }}
+        </a>
       </fieldset>
 
       <fieldset class="fieldset border-none p-0">
@@ -51,6 +57,7 @@ const originalContract = ref(Object.assign({}, contract.value))
         <input
           v-if="!inserted?.name"
           v-model="contract.name"
+          data-test-id="contract-create-name"
           class="input-bordered input w-full"
           :class="{ 'border-2 input-primary': !!inserted && originalContract.name !== contract.name }"
           type="text"
@@ -86,7 +93,7 @@ const originalContract = ref(Object.assign({}, contract.value))
         />
       </fieldset>
 
-      <fieldset class="fieldset border-none p-0">
+      <fieldset data-test-id="contract-dashboard-deadline" class="fieldset border-none p-0">
         <legend class="fieldset-legend">Expiration Notice Period (in days)</legend>
         <input
           v-if="!inserted?.exp_notice_period"
@@ -121,7 +128,7 @@ const originalContract = ref(Object.assign({}, contract.value))
           disabled
         />
       </fieldset>
-      <fieldset class="fieldset border-none p-0">
+      <fieldset data-test-id="contract-dashboard-responsibility" class="fieldset border-none p-0">
         <div class="collapse-arrow collapse [&>input~.collapse-title::after]:scale-75">
           <input type="checkbox" name="responsibles" />
           <legend class="collapse-title fieldset-legend pl-0 font-semibold">Responsible Participants</legend>

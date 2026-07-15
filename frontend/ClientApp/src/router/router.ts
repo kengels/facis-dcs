@@ -21,7 +21,9 @@ import { authenticationService } from '@/services/authentication-service'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAuthTokenStore } from '@/stores/auth-token-store'
 import { useNavStore } from '@/stores/nav-store'
+import ArchiveDashboardView from '@/views/archive/ArchiveDashboardView.vue'
 import AuditView from '@/views/audit/AuditView.vue'
+import ComplianceInvestigationView from '@/views/audit/ComplianceInvestigationView.vue'
 import AuthSuccessView from '@/views/auth/AuthSuccessView.vue'
 import LoginView from '@/views/auth/LoginView.vue'
 import PidPresentationView from '@/views/auth/PidPresentationView.vue'
@@ -33,6 +35,7 @@ import ReviewContractView from '@/views/contract/ReviewContractView.vue'
 import ViewContractView from '@/views/contract/ViewContractView.vue'
 import ContractTemplateListView from '@/views/contract-template-list/ContractTemplateListView.vue'
 import FrontPageView from '@/views/FrontPageView.vue'
+import SignatureComplianceView from '@/views/signing/SignatureComplianceView.vue'
 import SigningDashboardView from '@/views/signing/SigningDashboardView.vue'
 import TaskListView from '@/views/task/TaskListView.vue'
 
@@ -74,6 +77,7 @@ const ROUTES = {
   },
   SIGNING: {
     DASHBOARD: 'signing.dashboard',
+    COMPLIANCE: 'signing.compliance',
   },
 } as const
 
@@ -235,6 +239,32 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/archive',
+    name: 'archive.dashboard',
+    component: ArchiveDashboardView,
+    meta: {
+      name: 'Archive',
+      icon: ClipboardDocumentListIcon,
+      requiresAuth: true,
+      title: 'DCS - Archive',
+      order: 6,
+      roles: ['ARCHIVE_MANAGER', 'CONTRACT_OBSERVER'],
+    },
+  },
+  {
+    path: '/compliance',
+    name: 'compliance.investigation',
+    component: ComplianceInvestigationView,
+    meta: {
+      name: 'Compliance',
+      icon: ClipboardDocumentListIcon,
+      requiresAuth: true,
+      title: 'DCS - Compliance',
+      order: 7,
+      roles: ['COMPLIANCE_OFFICER'],
+    },
+  },
+  {
     path: '/audit',
     name: ROUTES.AUDIT.LIST,
     component: AuditView,
@@ -378,6 +408,30 @@ const routes: RouteRecordRaw[] = [
       title: 'DCS - Signing Dashboard',
       order: 5,
       roles: ['CONTRACT_SIGNER', 'CONTRACT_MANAGER', 'CONTRACT_OBSERVER'],
+    },
+  },
+  {
+    path: '/signing/:did',
+    name: 'signing.contract',
+    component: SigningDashboardView,
+    meta: {
+      name: 'Secure Contract Viewer',
+      hideInSidebar: true,
+      requiresAuth: true,
+      title: 'DCS - Secure Contract Viewer',
+      roles: ['CONTRACT_SIGNER', 'CONTRACT_MANAGER', 'CONTRACT_OBSERVER'],
+    },
+  },
+  {
+    path: '/signature/compliance/:did',
+    name: ROUTES.SIGNING.COMPLIANCE,
+    component: SignatureComplianceView,
+    meta: {
+      name: 'Signature Compliance',
+      hideInSidebar: true,
+      requiresAuth: true,
+      title: 'DCS - Signature Compliance',
+      roles: ['COMPLIANCE_OFFICER', 'CONTRACT_OBSERVER', 'AUDITOR', 'CONTRACT_MANAGER'],
     },
   },
   {

@@ -46,6 +46,8 @@ const { isManager } = useTemplatePermissions()
         <a
           v-for="(tab, _index) in tabs"
           :key="tab.id"
+          :data-test-id="tab.id === 'audit' ? 'template-manager-audit' : undefined"
+          :data-test-key="tab.id === 'audit' ? draftStore.did : undefined"
           role="tab"
           class="tab"
           :class="{ 'tab-active text-primary': activeTab === tab.id }"
@@ -71,7 +73,9 @@ const { isManager } = useTemplatePermissions()
                   <span class="badge w-8 badge-sm badge-primary">0{{ currentTabNumber }}</span>
                   Template Details
                 </div>
-                <div v-if="state" class="badge badge-sm badge-secondary">{{ state }}</div>
+                <div v-if="state" data-test-id="template-lifecycle-status" class="badge badge-sm badge-secondary">
+                  {{ state }}
+                </div>
               </h2>
               <DetailsEditor />
             </div>
@@ -144,7 +148,7 @@ const { isManager } = useTemplatePermissions()
         <template v-if="isManager">
           <div v-show="activeTab === 'audit'">
             <div class="card border border-base-300 bg-base-100 shadow-sm">
-              <div class="card-body">
+              <div data-test-id="template-audit-timeline" class="card-body">
                 <h2 class="card-title text-sm">
                   <span class="badge w-8 badge-sm badge-primary">0{{ currentTabNumber }}</span>
                   Audit History

@@ -1,6 +1,11 @@
 SHELL := /bin/bash -eu -o pipefail
 
 PYTHON ?= python3
+PLAYWRIGHT_VERSION ?= 1.52.0
+PLAYWRIGHT_INSTALL_ARGS ?= chromium
+PLAYWRIGHT_IMAGE ?= facis-dcs-bdd-playwright:1.52.0
+PLAYWRIGHT_BROWSERS_PATH ?= $(THIS_DIR).tmp/playwright-browsers
+export PLAYWRIGHT_BROWSERS_PATH
 # Unter WSL gegen /mnt/c liegt das Repo auf dem 9P-Dateisystem — ein venv dort
 # macht jeden Python-Import 5-20x langsamer. Default daher: venv im nativen
 # ext4-Home der Distro. Explizites VENV_PATH=... überschreibt weiterhin;
@@ -83,10 +88,13 @@ BDD_HELM_SET_B := \
 	--set-string hydra.clients[0].redirect_uris[0]="$(BDD_PUBLIC_ORIGIN_B)/digital-contracting-service/api/auth/callback" \
 	--set-string hydra.clients[0].post_logout_redirect_uris[0]="$(BDD_PUBLIC_ORIGIN_B)/digital-contracting-service/api/auth/logout-complete"
 
-.PHONY: setup_environment ensure_venv run_bdd_test run_bdd_fast run_bdd_helm ensure_kind ensure_k8s_tools kind_create kind_delete kind_load_image kind_load_pdf_core_image kind_deploy kind_deploy_b kind_coredns_rewrite kind_uninstall run_bdd_kind run_bdd_kind_all run_bdd_kind_ci run_bdd_audit_kind_ci build_dcs_image clean help kind_up kind_up_audit run_bdd_kind_once run_bdd_audit_kind_once kind_down
+.PHONY: setup_environment setup_playwright build_playwright_image validate_ui_coverage validate_ui_evidence ensure_venv run_bdd_test run_bdd_fast run_bdd_helm ensure_kind ensure_k8s_tools kind_create kind_delete kind_load_image kind_load_pdf_core_image kind_deploy kind_deploy_b kind_coredns_rewrite kind_uninstall run_bdd_kind run_bdd_kind_all run_bdd_kind_ci run_bdd_ui_kind_once run_bdd_audit_kind_ci build_dcs_image clean help kind_up kind_up_audit run_bdd_kind_once run_bdd_audit_kind_once kind_down
 
 help:
 	@echo "make setup_environment   # Create venv and install bdd-executor"
+	@echo "make setup_playwright    # Install the pinned Chromium browser runtime"
+	@echo "make run_bdd_ui_kind_once # Run @ui scenarios against an existing kind stack"
+	@echo "make validate_ui_coverage # Reject unsupported UI coverage claims/selectors"
 	@echo "make run_bdd_test		# Run all BDD scenarios (coverage + junit reports)"
 	@echo "make run_bdd_fast T=@tag	# Fast dev loop: tag-scoped, --stop, no coverage/junit"
 	@echo "make run_bdd_helm		# Run BDD via Traefik on http://localhost:18080"
@@ -118,6 +126,19 @@ setup_environment:
 	"$(VENV_PATH)/bin/pip" install -q -e "$$SRC_PATH[dev]"; \
 	"$(VENV_PATH)/bin/pip" install -q psycopg2-binary pypdf==5.7.0
 	"$(VENV_PATH)/bin/pip" install -q -r "$(PROJECT_ROOT)/testWallet/requirements.txt"
+	"$(VENV_PATH)/bin/pip" install -q "playwright==$(PLAYWRIGHT_VERSION)"
+
+setup_playwright: setup_environment
+	@"$(VENV_ABS)/bin/playwright" install $(PLAYWRIGHT_INSTALL_ARGS)
+
+build_playwright_image:
+	@docker build -f Dockerfile.playwright -t "$(PLAYWRIGHT_IMAGE)" ../..
+
+validate_ui_coverage:
+	@$(PYTHON) scripts/validate_ui_coverage.py
+
+validate_ui_evidence:
+	@$(PYTHON) scripts/validate_ui_coverage.py --require-evidence
 
 # Bootstrappt das venv nur, wenn es fehlt/kaputt ist — der pip-Refresh bei
 # jedem Lauf kostete sonst 10-60s pro Testzyklus.
@@ -139,7 +160,7 @@ run_bdd_fast: ensure_venv
 	@cd "$(PROJECT_ROOT)" && \
 	"$(VENV_ABS)/bin/behave" --stop $(if $(T),--tags=$(T)) $(if $(F),$(F),$(FEATURES_PATH)) $(ARG_BDD)
 
-run_bdd_helm: setup_environment ensure_k8s_tools
+run_bdd_helm: ensure_venv ensure_k8s_tools
 	@VENV_PATH="$(VENV_ABS)" \
 		PROJECT_ROOT="$(PROJECT_ROOT)" \
 		FEATURES_PATH="$(FEATURES_PATH)" \
@@ -364,7 +385,19 @@ run_bdd_kind_all: kind_deploy_b
 		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
 		HELM_RELEASE="$(HELM_RELEASE)"
 
-run_bdd_kind_ci: build_dcs_image build_pdf_core_image run_bdd_kind
+run_bdd_kind_ci: validate_ui_coverage build_dcs_image build_pdf_core_image setup_playwright kind_deploy_b
+	@$(MAKE) run_bdd_helm \
+		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
+		HELM_RELEASE="$(HELM_RELEASE)" \
+		ARG_BDD="--tags=~@ui" \
+		ARG_BDD_JUNIT="--junit --junit-directory $(REPORTS_ABS)/api/junit"
+	@$(MAKE) run_bdd_helm \
+		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
+		HELM_RELEASE="$(HELM_RELEASE)" \
+		FEATURES_PATH="features/24_ui_traceability" \
+		ARG_BDD="--tags=@ui" \
+		ARG_BDD_JUNIT="--junit --junit-directory $(REPORTS_ABS)/ui/junit/full"
+	@$(MAKE) validate_ui_evidence
 
 run_bdd_audit_kind_ci: build_dcs_image build_pdf_core_image kind_deploy
 	@$(MAKE) run_bdd_audit_kind_once
@@ -391,6 +424,13 @@ run_bdd_kind_once:
 		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
 		HELM_RELEASE="$(HELM_RELEASE)" \
 		FEATURES_PATH="$(if $(F),$(F),$(FEATURES_PATH))"
+
+run_bdd_ui_kind_once: setup_playwright
+	@$(MAKE) run_bdd_helm \
+		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
+		HELM_RELEASE="$(HELM_RELEASE)" \
+		ARG_BDD="--tags=@ui" \
+		FEATURES_PATH="features/24_ui_traceability"
 
 run_bdd_audit_kind_once:
 	@$(MAKE) run_bdd_helm \

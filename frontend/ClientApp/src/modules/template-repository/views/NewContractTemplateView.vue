@@ -85,26 +85,27 @@ const submit = async () => {
   isSubmitting.value = true
   submitError.value = null
   try {
+    let savedDid = draftStore.did ?? ''
     if (!draftStore.hasTemplateId) {
       // create a draft template
       const data = draftStore.templateCreateRequestData
-      await contractTemplateService.create(data)
+      savedDid = (await contractTemplateService.create(data)).did
     } else {
       if (isManager.value) {
         // update existing template
         const data = draftStore.templateUpdateManageRequestData
         if (data) {
-          await contractTemplateService.updateManage(data)
+          savedDid = (await contractTemplateService.updateManage(data)).did
         }
       } else {
         // update existing template
         const data = draftStore.templateUpdateRequestData
         if (data) {
-          await contractTemplateService.update(data)
+          savedDid = (await contractTemplateService.update(data)).did
         }
       }
     }
-    await router.push({ name: ROUTES.TEMPLATES.LIST })
+    await router.push({ name: ROUTES.TEMPLATES.LIST, query: { saved_did: savedDid } })
   } catch (error) {
     console.error('Submission failed', error)
     submitError.value = error instanceof Error ? error.message : String(error)
@@ -134,7 +135,12 @@ const submit = async () => {
       >
         <div class="mx-auto flex max-w-4xl flex-col gap-3 px-6 py-3 md:flex-row">
           <button class="btn btn-outline md:w-32" @click="router.back()">Cancel</button>
-          <button class="btn flex-1 btn-primary" :disabled="isSubmitting" @click="submit">
+          <button
+            data-test-id="template-editor-save"
+            class="btn flex-1 btn-primary"
+            :disabled="isSubmitting"
+            @click="submit"
+          >
             <span v-if="isSubmitting" class="loading loading-sm loading-spinner"></span>
             {{ isEditMode ? 'Update' : 'Create' }}
           </button>

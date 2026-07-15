@@ -114,7 +114,7 @@ const handleShowBtn = (negotiation: ContractNegotiation) => {
 </script>
 
 <template>
-  <ul class="list">
+  <ul data-test-id="contract-negotiation-thread" class="list">
     <li v-for="negotiation in sortedNegotiations" :key="negotiation.id" class="list-row px-0">
       <div class="card border-base-content/10 bg-base-100 shadow-sm card-border">
         <div class="card-body">

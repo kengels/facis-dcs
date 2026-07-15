@@ -162,6 +162,7 @@ func (s *signatureManagementsrvc) Retrieve(ctx context.Context, req *signaturema
 			ContractVersion: item.ContractVersion,
 			State:           item.State.String(),
 			Signer:          item.SignerDID,
+			FieldName:       item.FieldName,
 			CreatedAt:       item.CreatedAt.Format(time.RFC3339),
 		})
 	}
@@ -359,6 +360,7 @@ func (s *signatureManagementsrvc) Revoke(ctx context.Context, req *signaturemana
 		DID:       req.Did,
 		SignerDID: req.SignerDid,
 		RevokedBy: middleware.GetParticipantID(ctx),
+		Reason:    req.Reason,
 		HolderDID: middleware.GetHolderDID(ctx),
 		UserRoles: middleware.GetUserRoles(ctx),
 	}

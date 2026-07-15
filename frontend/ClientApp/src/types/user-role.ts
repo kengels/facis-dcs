@@ -40,6 +40,14 @@ const ROLE_LABEL_TO_USER_ROLE: Record<string, UserRole> = {
   Validator: 'VALIDATOR',
 }
 
+const USER_ROLE_TO_ROLE_LABEL = Object.fromEntries(
+  Object.entries(ROLE_LABEL_TO_USER_ROLE).map(([label, role]) => [role, label]),
+) as Record<UserRole, string>
+
+export function userRoleLabel(role: UserRole): string {
+  return USER_ROLE_TO_ROLE_LABEL[role]
+}
+
 /** Reads roles from a JWT payload. */
 export function rolesFromJwtPayload(payload: Record<string, unknown> | null | undefined): unknown {
   if (!payload) return []

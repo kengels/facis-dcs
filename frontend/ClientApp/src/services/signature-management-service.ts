@@ -10,6 +10,20 @@ export interface SignatureContract {
   updated_at: string
 }
 
+export interface SigningTask {
+  did: string
+  contract_version: number
+  state: string
+  signer: string
+  field_name: string
+  created_at: string
+}
+
+export interface SigningDashboardData {
+  contracts: SignatureContract[]
+  signingTasks: SigningTask[]
+}
+
 export interface SignatureEnvelope {
   contract_did: string
   signer_did: string
@@ -50,6 +64,23 @@ export interface SignatureAuditEntry {
   global_log_pred_cid?: string
 }
 
+export interface SignatureViewItem {
+  signer_did: string
+  field_name?: string
+  credential_type: string
+  status: string
+  signed_at?: string
+  revoked_at?: string
+  format: string
+}
+
+export interface SignatureView {
+  did: string
+  contract_state: string
+  signatures: SignatureViewItem[]
+  integrity_findings: string[]
+}
+
 export type CeremonyStatus = 'pending' | 'verified' | 'expired' | 'failed'
 
 export interface CeremonyStartResult {
@@ -69,10 +100,10 @@ export interface CeremonyStatusResult {
 }
 
 export const signatureManagementService = {
-  async retrieveContracts(): Promise<SignatureContract[]> {
+  async retrieveContracts(): Promise<SigningDashboardData> {
     return http
-      .get<{ contracts: SignatureContract[]; signing_tasks: unknown[] }>('/signature/retrieve')
-      .then((res) => res.data.contracts ?? [])
+      .get<{ contracts: SignatureContract[]; signing_tasks: SigningTask[] }>('/signature/retrieve')
+      .then((res) => ({ contracts: res.data.contracts, signingTasks: res.data.signing_tasks }))
   },
 
   async startCeremony(contractDid: string, fieldName: string): Promise<CeremonyStartResult> {
@@ -85,11 +116,17 @@ export const signatureManagementService = {
     return http.get<CeremonyStatusResult>(`/signature/request/${ceremonyId}`).then((res) => res.data)
   },
 
-  async applySignature(did: string, signerDid: string, credentialType: string): Promise<SignatureEnvelope | undefined> {
+  async applySignature(
+    did: string,
+    signerDid: string,
+    fieldName: string,
+    credentialType: string,
+  ): Promise<SignatureEnvelope | undefined> {
     return http
       .post<{ did: string; signature_envelope?: SignatureEnvelope }>('/signature/apply', {
         did,
         signer_did: signerDid,
+        field_name: fieldName,
         credential_type: credentialType,
         updated_at: new Date().toISOString(),
       })
@@ -108,8 +145,12 @@ export const signatureManagementService = {
     return http.post<SignatureComplianceResult>('/signature/compliance', { did }).then((res) => res.data)
   },
 
-  async revokeSignature(did: string, signerDid: string): Promise<void> {
-    await http.post('/signature/revoke', { did, signer_did: signerDid })
+  async revokeSignature(did: string, signerDid: string, reason: string): Promise<void> {
+    await http.post('/signature/revoke', { did, signer_did: signerDid, reason })
+  },
+
+  async viewSignatures(did: string): Promise<SignatureView> {
+    return http.get<SignatureView>('/signature/view', { params: { did } }).then((res) => res.data)
   },
 
   async getAudit(did: string): Promise<SignatureAuditEntry[]> {

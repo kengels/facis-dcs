@@ -37,6 +37,7 @@ const props = defineProps<{
   label: string
   storeType: StoreType
   disabled?: boolean
+  dataTestId?: string
 }>()
 
 const filterStore = storeMap[props.storeType]() as unknown as FilterStore<FilterMap[StoreType]>
@@ -77,6 +78,7 @@ const isSelected = (type: FilterMap[typeof props.storeType]) => {
 <template>
   <button
     id="popover-btn"
+    :data-test-id="dataTestId"
     popovertarget="filter-popover"
     class="select m-2 w-fit gap-2 select-secondary"
     :class="{ 'btn-disabled': disabled }"
@@ -92,6 +94,7 @@ const isSelected = (type: FilterMap[typeof props.storeType]) => {
       <li
         v-for="filter in shownFilters"
         :key="filter"
+        :data-test-key="filter"
         class="flex justify-between transition-colors"
         @click="setFilter(filter)"
       >

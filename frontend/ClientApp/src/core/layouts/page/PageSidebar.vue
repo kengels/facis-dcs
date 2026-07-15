@@ -6,6 +6,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import facisLogo from '@/assets/FACIS_color.svg'
 import { ROUTES } from '@/router/router'
 import { useAuthStore } from '@/stores/auth-store'
+import { userRoleLabel } from '@/types/user-role'
 
 const router = useRouter()
 
@@ -54,6 +55,7 @@ const navigationRoutes = computed(() => {
           :class="['rounded-btn flex items-center gap-4 py-3', isSidebarCollapsed ? 'justify-center px-0' : 'px-4']"
           active-class="active bg-primary text-primary-content"
           :data-tip="isSidebarCollapsed ? route.meta?.name : ''"
+          :data-test-id="route.path === '/templates' ? 'template-create-navigation' : undefined"
           @click="closeMobileDrawer"
         >
           <component :is="route.meta?.icon" class="h-6 w-6 shrink-0" aria-hidden="true" />
@@ -64,4 +66,7 @@ const navigationRoutes = computed(() => {
       </li>
     </ul>
   </nav>
+  <p v-if="user" class="px-4 pb-4 text-xs" data-test-id="app-authenticated-role">
+    {{ user.roles.map(userRoleLabel).join(', ') }}
+  </p>
 </template>

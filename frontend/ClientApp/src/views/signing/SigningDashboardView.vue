@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, useTemplateRef } from 'vue'
+import { useRoute } from 'vue-router'
 import SigningCeremonyDialog from '@/components/signing/SigningCeremonyDialog.vue'
 import { useContractPermissions } from '@/modules/contract-workflow-engine/composables/useContractPermissions'
 import { contractWorkflowService } from '@/services/contract-workflow-service'
@@ -10,15 +11,15 @@ import {
   signatureManagementService,
   type SignatureValidateResult,
   type SignatureVerifyResult,
+  type SigningTask,
 } from '@/services/signature-management-service'
 
-// AcroForm field name the signing ceremony binds to; the field itself is
-// created by the PDF renderer, so a single fixed name is sufficient here.
-const SIGNATURE_FIELD_NAME = 'Signature1'
-
 const ceremonyDialog = useTemplateRef<InstanceType<typeof SigningCeremonyDialog>>('ceremony-dialog')
+const route = useRoute()
 
 const contracts = ref<SignatureContract[]>([])
+const signingTasks = ref<SigningTask[]>([])
+const selectedContractDid = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -30,6 +31,8 @@ const envelopes = ref<Record<string, SignatureEnvelope | undefined>>({})
 const verifyResults = ref<Record<string, SignatureVerifyResult | undefined>>({})
 const validateResults = ref<Record<string, SignatureValidateResult | undefined>>({})
 const complianceResults = ref<Record<string, SignatureComplianceResult | undefined>>({})
+const verifiedSigners = ref<Record<string, string | undefined>>({})
+const completionTimestamps = ref<Record<string, string | undefined>>({})
 const pdfVerifyResults = ref<
   Record<
     string,
@@ -87,7 +90,10 @@ function c2paStatus(contract: SignatureContract): C2PAStatus {
 onMounted(async () => {
   loading.value = true
   try {
-    contracts.value = await signatureManagementService.retrieveContracts()
+    const dashboard = await signatureManagementService.retrieveContracts()
+    contracts.value = dashboard.contracts
+    signingTasks.value = dashboard.signingTasks
+    if (route.params.did) selectedContractDid.value = String(route.params.did)
   } catch {
     error.value = 'Failed to load contracts for signing.'
   } finally {
@@ -95,18 +101,41 @@ onMounted(async () => {
   }
 })
 
-async function sign(contract: SignatureContract) {
+function tasksFor(contractDid: string): SigningTask[] {
+  return signingTasks.value.filter((task) => task.did === contractDid)
+}
+
+function openTask(contract: SignatureContract) {
+  selectedContractDid.value = contract.did
+}
+
+async function sign(contract: SignatureContract, task: SigningTask) {
   signing.value[contract.did] = true
   try {
     const outcome = await ceremonyDialog.value?.reveal({
       contractDid: contract.did,
-      fieldName: SIGNATURE_FIELD_NAME,
+      fieldName: task.field_name,
     })
     if (!outcome || outcome.isCanceled || !outcome.data) {
       return
     }
-    const env = await signatureManagementService.applySignature(contract.did, outcome.data.signerDid, 'AES')
+    verifiedSigners.value[`${contract.did}:${task.field_name}`] = outcome.data.signerDid
+  } catch (e: unknown) {
+    error.value = `Failed to sign contract ${contract.did}: ${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    signing.value[contract.did] = false
+  }
+}
+
+async function applyVerifiedSignature(contract: SignatureContract, task: SigningTask) {
+  const signerDid = verifiedSigners.value[`${contract.did}:${task.field_name}`]
+  if (!signerDid) return
+  signing.value[contract.did] = true
+  try {
+    const env = await signatureManagementService.applySignature(contract.did, signerDid, task.field_name, 'AES')
     envelopes.value[contract.did] = env
+    task.state = env?.status ?? task.state
+    completionTimestamps.value[`${contract.did}:${task.field_name}`] = env?.signed_at
   } catch (e: unknown) {
     error.value = `Failed to sign contract ${contract.did}: ${e instanceof Error ? e.message : String(e)}`
   } finally {
@@ -166,7 +195,12 @@ async function compliance(contract: SignatureContract) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="contract in contracts" :key="contract.did">
+          <tr
+            v-for="contract in contracts"
+            :key="contract.did"
+            data-test-id="signing-task-row"
+            :data-test-key="contract.did"
+          >
             <td class="max-w-xs truncate font-mono text-xs">{{ contract.did }}</td>
             <td>{{ contract.name ?? '—' }}</td>
             <td>{{ contract.contract_version ?? 1 }}</td>
@@ -206,21 +240,67 @@ async function compliance(contract: SignatureContract) {
               <div v-if="complianceResults[contract.did]?.findings?.length" class="mt-1 text-xs">
                 Compliance: {{ complianceResults[contract.did]?.findings?.[0] }}
               </div>
+              <div v-for="task in tasksFor(contract.did)" :key="task.field_name" class="mt-2">
+                <span data-test-id="signing-declared-field" :data-test-key="task.field_name">
+                  {{ task.field_name }}
+                </span>
+                <span class="ml-2 badge badge-sm" data-test-id="signing-task-status" :data-test-key="task.field_name">
+                  {{ task.state }}
+                </span>
+                <time
+                  v-if="completionTimestamps[`${contract.did}:${task.field_name}`]"
+                  data-test-id="signing-completion-timestamp"
+                  :data-test-key="task.field_name"
+                >
+                  {{ completionTimestamps[`${contract.did}:${task.field_name}`] }}
+                </time>
+              </div>
             </td>
             <td class="flex gap-2">
               <button
                 class="btn btn-sm btn-primary"
-                :disabled="envelopes[contract.did]?.status === 'SIGNED' || !isSigner || signing[contract.did]"
-                @click="sign(contract)"
+                data-test-id="signing-task-open"
+                :data-test-key="contract.did"
+                :disabled="!isSigner"
+                @click="openTask(contract)"
               >
-                <span v-if="signing[contract.did]" class="loading loading-xs loading-spinner" />
-                Sign
+                Open
               </button>
               <button class="btn btn-outline btn-sm" :disabled="!isSigner" @click="verify(contract)">Verify</button>
               <button class="btn btn-outline btn-sm" :disabled="!isSigner" @click="validate(contract)">Validate</button>
               <button class="btn btn-outline btn-sm" :disabled="!isSigner" @click="compliance(contract)">
                 Compliance
               </button>
+            </td>
+          </tr>
+          <tr v-if="selectedContractDid" data-test-id="signing-contract-viewer">
+            <td colspan="7">
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="task in tasksFor(selectedContractDid)"
+                  :key="task.field_name"
+                  class="btn btn-sm btn-primary"
+                  data-test-id="signing-ceremony-start"
+                  :data-test-key="task.field_name"
+                  :disabled="!isSigner || signing[selectedContractDid] || task.state === 'SIGNED'"
+                  @click="sign(contracts.find((item) => item.did === selectedContractDid)!, task)"
+                >
+                  Sign {{ task.field_name }}
+                </button>
+                <button
+                  v-for="task in tasksFor(selectedContractDid)"
+                  :key="`apply-${task.field_name}`"
+                  class="btn btn-sm btn-success"
+                  data-test-id="signing-apply-signature"
+                  :data-test-key="task.field_name"
+                  :disabled="
+                    !verifiedSigners[`${selectedContractDid}:${task.field_name}`] || signing[selectedContractDid]
+                  "
+                  @click="applyVerifiedSignature(contracts.find((item) => item.did === selectedContractDid)!, task)"
+                >
+                  Apply {{ task.field_name }}
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>

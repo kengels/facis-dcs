@@ -228,3 +228,35 @@ export const auditingService: AuditingService = {
     }))
   },
 }
+
+export interface ComplianceRisk {
+  did: string
+  risk_type: string
+  detail: string
+  detected_at: string
+}
+
+export interface ComplianceMonitorResult {
+  checked_at: string
+  risks: ComplianceRisk[]
+}
+
+export interface IncidentReportRequest {
+  affected_contract_dids: string[]
+  affected_template_dids: string[]
+  finding_refs: string[]
+  reason: string
+}
+
+export interface IncidentReportResult extends IncidentReportRequest {
+  incident_id: string
+  reported_at: string
+}
+
+export async function monitorCompliance(): Promise<ComplianceMonitorResult> {
+  return http.get<ComplianceMonitorResult>('/pac/monitor').then((res) => res.data)
+}
+
+export async function reportIncident(request: IncidentReportRequest): Promise<IncidentReportResult> {
+  return http.post<IncidentReportResult>('/pac/incidents', request).then((res) => res.data)
+}

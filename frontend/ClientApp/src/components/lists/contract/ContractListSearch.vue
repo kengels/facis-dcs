@@ -42,6 +42,7 @@ const empty: Contract = { did: '', created_at: '', state: 'DRAFT', updated_at: '
     :filter-labels="filterLabels"
     :search-fn="async (request) => responseMapper(await contractWorkflowService.search(request))"
     :empty-item="empty"
+    data-test-prefix="contract-search"
     placeholder="Search contracts"
     @search-result="(result) => emit('searchResult', result)"
   />

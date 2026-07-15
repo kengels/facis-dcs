@@ -159,6 +159,7 @@ const exportPDF = async () => {
                 :key="tab.id"
                 role="tab"
                 class="tab"
+                :data-test-id="tab.id === 'audit' ? 'contract-manager-audit' : undefined"
                 :class="{ 'tab-active text-primary': activeTab === tab.id }"
                 @click="contractEditorUiStore.setActiveTab(tab.id)"
               >
@@ -177,6 +178,7 @@ const exportPDF = async () => {
                 <!-- Deployment KPIs (DCS-FR-CWE-31, DCS-FR-CWE-09) -->
                 <div
                   v-if="contract.kpis && contract.kpis.length > 0"
+                  data-test-id="contract-dashboard-kpi"
                   class="card mt-4 border border-base-300 bg-base-100 shadow-sm"
                 >
                   <div class="card-body gap-2">
@@ -247,9 +249,9 @@ const exportPDF = async () => {
               <template v-if="isAuditingAuthorized">
                 <div v-show="activeTab === 'audit'">
                   <div class="card border border-base-300 bg-base-100 shadow-sm">
-                    <div class="card-body">
+                    <div data-test-id="contract-dashboard-history" class="card-body">
                       <h2 class="card-title text-sm">Audit History</h2>
-                      <AuditView />
+                      <div data-test-id="contract-audit-timeline"><AuditView /></div>
                     </div>
                   </div>
                 </div>
@@ -257,7 +259,7 @@ const exportPDF = async () => {
 
               <div v-show="activeTab === 'structure'">
                 <div class="card border border-base-300 bg-base-100 shadow-sm">
-                  <div class="card-body gap-4">
+                  <div data-test-id="contract-dashboard-hierarchy" class="card-body gap-4">
                     <!-- Ancestor chain -->
                     <div v-if="ancestors.length > 0" class="space-y-1">
                       <div
@@ -291,13 +293,18 @@ const exportPDF = async () => {
                     <!-- Children -->
                     <div
                       v-if="childContracts.length > 0"
+                      data-test-id="contract-dashboard-dependencies"
                       :style="{ paddingLeft: `${ancestors.length + 1}rem` }"
                       class="border-l border-base-300 pl-4"
                     >
                       <ContractStructureTree :root-did="contract.did" :contracts="contracts" />
                     </div>
 
-                    <p v-else-if="ancestors.length === 0" class="text-sm text-base-content/40">
+                    <p
+                      v-else-if="ancestors.length === 0"
+                      data-test-id="contract-dashboard-dependencies"
+                      class="text-sm text-base-content/40"
+                    >
                       This contract has no parent or child contracts.
                     </p>
                   </div>

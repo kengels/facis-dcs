@@ -132,6 +132,7 @@ type ContractSigningTask struct {
 	ContractVersion int       `db:"contract_version"`
 	State           string    `db:"state"`
 	SignerDID       string    `db:"signer_did"`
+	FieldName       string    `db:"field_name"`
 	CreatedAt       time.Time `db:"created_at"`
 }
 

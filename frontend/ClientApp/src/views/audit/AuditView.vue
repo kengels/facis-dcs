@@ -540,6 +540,7 @@ function formatDateTime(value?: string): string {
           <span class="label-text mb-1">Scope</span>
           <select
             v-model="selectedScope"
+            data-test-id="audit-scope-filter"
             class="select-bordered select rounded-box"
             :disabled="auditLoading || reportLoading"
           >
@@ -553,6 +554,7 @@ function formatDateTime(value?: string): string {
           <span class="label-text mb-1">DID (optional)</span>
           <input
             v-model="didFilter"
+            data-test-id="audit-did-filter"
             class="input-bordered input rounded-box"
             :disabled="auditLoading || reportLoading"
           />
@@ -569,6 +571,7 @@ function formatDateTime(value?: string): string {
         </label>
 
         <button
+          data-test-id="audit-run"
           class="btn rounded-box btn-primary sm:self-end"
           :disabled="auditLoading || reportLoading || !justification.trim()"
           @click="executeAudit"
@@ -579,6 +582,7 @@ function formatDateTime(value?: string): string {
 
         <div class="flex flex-wrap gap-2 sm:self-end">
           <button
+            data-test-id="audit-export"
             class="btn rounded-box btn-outline"
             :disabled="reportLoading || auditLoading || !hasExecutedAudit || !justification.trim()"
             @click="generateReport('json')"
@@ -700,6 +704,8 @@ function formatDateTime(value?: string): string {
             <tr
               v-for="finding in filteredFindings"
               :key="finding.id"
+              data-test-id="audit-result"
+              :data-test-key="finding.did"
               class="cursor-pointer"
               :class="String(selectedFindingId) === String(finding.id) ? 'bg-primary/10' : ''"
               tabindex="0"
@@ -745,6 +751,8 @@ function formatDateTime(value?: string): string {
             <tr
               v-for="event in timelineEvents"
               :key="event.id"
+              data-test-id="audit-result"
+              :data-test-key="event.did"
               class="cursor-pointer"
               :class="String(selectedFindingId) === String(event.id) ? 'bg-primary/10' : ''"
               tabindex="0"
