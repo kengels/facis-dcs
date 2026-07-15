@@ -30,7 +30,9 @@ const (
 	RetrieveArchived         EventType = "RETRIEVE_ARCHIVED_CONTRACTS"
 	StoreArchived            EventType = "STORE_ARCHIVED_CONTRACT"
 	DeleteArchived           EventType = "DELETE_ARCHIVED_CONTRACT"
+	AnnotateArchived         EventType = "ANNOTATE_ARCHIVED_CONTRACT"
 	RetrieveByID             EventType = "RETRIEVE_CONTRACT_BY_ID"
+	AccessDenied             EventType = "CONTRACT_ACCESS_DENIED"
 	RetrieveHistoryByDID     EventType = "RETRIEVE_CONTRACT_HISTORY_BY_DID"
 	Search                   EventType = "SEARCH_CONTRACT"
 	Review                   EventType = "REVIEW_CONTRACT"
@@ -68,7 +70,9 @@ var validStates = map[EventType]bool{
 	RetrieveArchived:         true,
 	StoreArchived:            true,
 	DeleteArchived:           true,
+	AnnotateArchived:         true,
 	RetrieveByID:             true,
+	AccessDenied:             true,
 	RetrieveHistoryByDID:     true,
 	Search:                   true,
 	Review:                   true,

@@ -103,6 +103,7 @@ func mapContractCommandError(err error) error {
 		errors.Is(err, validation.ErrContractHierarchyInvalid) ||
 		errors.Is(err, command.ErrContractHierarchyCycle) ||
 		errors.Is(err, command.ErrDeploymentNotFound) ||
+		errors.Is(err, command.ErrSigningIncomplete) ||
 		errors.Is(err, command.ErrContractNotRenewable) ||
 		errors.Is(err, command.ErrNotAParty) ||
 		errors.Is(err, command.ErrConflictOfInterest) ||
@@ -157,6 +158,7 @@ func (s *contractWorkflowEnginesrvc) Create(ctx context.Context, req *contractwo
 		Reviewers:   req.Reviewers,
 		Approvers:   req.Approvers,
 		Negotiators: req.Negotiators,
+		Parties:     req.Parties,
 	}
 	createHandler := command.Creator{
 		DB:          s.DB,
@@ -478,11 +480,17 @@ func (s *contractWorkflowEnginesrvc) RetrieveByID(ctx context.Context, req *cont
 	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
 	defer cancel()
 
+	localPeer, err := s.DIDDocument.GetID()
+	if err != nil {
+		return nil, contractworkflowengine.MakeInternalError(err)
+	}
+
 	qry := contract.GetByIDQry{
 		DID:         req.Did,
 		RetrievedBy: middleware.GetParticipantID(ctx),
 		HolderDID:   middleware.GetHolderDID(ctx),
 		UserRoles:   middleware.GetUserRoles(ctx),
+		LocalPeer:   localPeer,
 	}
 	qryHandler := contract.GetByIDHandler{
 		Ctx:   ctx,
@@ -492,7 +500,10 @@ func (s *contractWorkflowEnginesrvc) RetrieveByID(ctx context.Context, req *cont
 	}
 	contractResult, err := qryHandler.Handle(ctx, qry)
 	if err != nil {
-		return nil, templaterepository.MakeInternalError(err)
+		if errors.Is(err, contract.ErrContractAccessDenied) {
+			return nil, contractworkflowengine.MakeForbidden(err)
+		}
+		return nil, contractworkflowengine.MakeInternalError(err)
 	}
 
 	negotiations := make(map[string]*contractworkflowengine.ContractNegotiationItem)
@@ -743,7 +754,7 @@ func (s *contractWorkflowEnginesrvc) Respond(ctx context.Context, req *contractw
 
 	actionFlag, err := negotiationactionflag.NewNegotiationActionFlag(req.ActionFlag)
 	if err != nil {
-		return nil, contractworkflowengine.MakeInternalError(fmt.Errorf("unknown action flag: %s", req.ActionFlag))
+		return nil, contractworkflowengine.MakeBadRequest(fmt.Errorf("unknown action flag: %s (expected ACCEPTING | REJECTING)", req.ActionFlag))
 	}
 
 	localPeer, err := s.DIDDocument.GetID()

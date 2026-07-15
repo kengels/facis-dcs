@@ -14,6 +14,7 @@ var ContractCreateRequest = Type("ContractCreateRequest", func() {
 	Attribute("reviewers", ArrayOf(String), "A list of reviewers for that contract")
 	Attribute("approvers", ArrayOf(String), "A list of approvers for that contract")
 	Attribute("negotiators", ArrayOf(String), "A list of negotiators for that contract")
+	Attribute("parties", ArrayOf(String), "Organizations that are parties to this contract; party membership gates read access to the contract (stored as the dcs:parties JSON-LD property)")
 
 	Required("template_did")
 })
@@ -186,6 +187,8 @@ var ContractItem = Type("ContractItem", func() {
 	Attribute("template_is_deprecated", Boolean, "Whether the template is deprecated")
 	Attribute("parent_contract_did", String, "The DID of the parent contract, if this is a sub-contract")
 	Attribute("evidence", Any, "Archive evidence blob (only populated for archived contracts), including a deployment sub-object with correlation_id/payload_hash/receipt_hash/tsa_token/activated_at (DCS-FR-SM-10, DCS-FR-SM-12)")
+	Attribute("archive_summary", String, "Archive annotation summary (only populated for archived contracts; DCS-FR-CSA-11)")
+	Attribute("archive_tags", ArrayOf(String), "Archive annotation tags (only populated for archived contracts; DCS-FR-CSA-11)")
 
 	Required("did", "state", "created_by", "created_at", "updated_at", "contract_version", "template_did", "template_version")
 })
@@ -907,6 +910,7 @@ var _ = Service("ContractWorkflowEngine", func() {
 		Result(ContractRetrieveByIDResponse)
 
 		Error("bad_request", ErrorResult, "Bad request")
+		Error("forbidden", ErrorResult, "Caller is not an authorized party of this contract")
 		Error("internal_error", ErrorResult, "Internal server error")
 
 		HTTP(func() {
@@ -915,6 +919,7 @@ var _ = Service("ContractWorkflowEngine", func() {
 
 			Response(StatusOK)
 			Response("bad_request", StatusBadRequest)
+			Response("forbidden", StatusForbidden)
 			Response("internal_error", StatusInternalServerError)
 		})
 	})

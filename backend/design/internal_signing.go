@@ -44,7 +44,7 @@ var PAdESSignResponse = Type("PAdESSignResponse", func() {
 // keep private-key material inside the backend's PKCS#11 token. pdf-core (a
 // separate process holding no key material) builds the COSE Sig_structure and
 // calls c2paSign to obtain the ES256 signature it embeds into a C2PA manifest
-// (DCS-IR-HI-01, Workstream A2.3). Unlike C2PAService (public manifest
+// (DCS-IR-HI-01). Unlike C2PAService (public manifest
 // retrieval), these methods require a JWT.
 var _ = Service("InternalSigning", func() {
 	Description("Authenticated backend-internal signing primitives backed by the PKCS#11 token (DCS-IR-HI-01).")
@@ -58,10 +58,13 @@ var _ = Service("InternalSigning", func() {
 		// template export, not a dedicated "sign" action — so the accepted
 		// scopes are the union of export_contract_pdf's, export_contract_bundle's,
 		// export_template_pdf's, and export_template_bundle's scopes
-		// (pdf_generation.go), rather than being restricted to a signing-specific
-		// role.
+		// (pdf_generation.go) plus signature view/validate's
+		// (signature_management.go — its integrity check re-renders the original
+		// payload through pdf-core /verify), rather than being restricted to a
+		// signing-specific role.
 		Security(JWTAuth, func() {
 			Scope("Contract Manager")
+			Scope("Sys. Contract Manager")
 			Scope("Contract Reviewer")
 			Scope("Contract Creator")
 			Scope("Contract Approver")
@@ -72,6 +75,8 @@ var _ = Service("InternalSigning", func() {
 			Scope("Template Reviewer")
 			Scope("Template Creator")
 			Scope("Template Approver")
+			Scope("Auditor")
+			Scope("Compliance Officer")
 		})
 
 		Payload(C2PASignRequest)
@@ -99,6 +104,7 @@ var _ = Service("InternalSigning", func() {
 		// authenticated export/sign action triggered the PDF signature.
 		Security(JWTAuth, func() {
 			Scope("Contract Manager")
+			Scope("Sys. Contract Manager")
 			Scope("Contract Reviewer")
 			Scope("Contract Creator")
 			Scope("Contract Approver")
@@ -109,6 +115,8 @@ var _ = Service("InternalSigning", func() {
 			Scope("Template Reviewer")
 			Scope("Template Creator")
 			Scope("Template Approver")
+			Scope("Auditor")
+			Scope("Compliance Officer")
 		})
 
 		Payload(PAdESSignRequest)

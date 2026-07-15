@@ -1,60 +1,60 @@
-import { defineStore } from 'pinia'
-import type {
-  TemplateDraftState,
-  AddBlockPayload,
-  AddBlockOptions,
-  SubTemplateReference,
-} from '@template-repository/models/template-draft-store'
-import type {
-  TemplateTypeValue,
-  SemanticCondition,
-  SemanticConditionParameter,
-  SemanticParameterOperator,
-  MetaData,
-} from '@template-repository/models/contract-template'
 import {
-  TemplateType,
   FACIS_SCHEMA_REFS,
   FACIS_TEMPLATE_POLICY_REFS,
   FACIS_TEMPLATE_VALIDATION_PROFILE,
+  TemplateType,
 } from '@template-repository/models/contract-template'
-import type { ContractTemplate, SubTemplateSnapshot } from '@/models/contract-template'
+import { ONTOLOGY_DOMAIN_FIELDS } from '@template-repository/utils/ontology-domain-fields'
+import { DCS_ODRL_PROFILE_IRI, DEFAULT_FIELD_CONSTRAINT_ACTION } from '@template-repository/utils/sla-ontology-catalog'
+import { isMergedBlockId, isSameTemplateDataRef } from '@template-repository/utils/template-data-ref'
+import { defineStore } from 'pinia'
+import {
+  DCS_JSONLD_CONTEXT,
+  type DcsApprovedTemplate,
+  type DcsBlock,
+  type DcsClause,
+  type DcsContentSegment,
+  type DcsContractData,
+  type DcsDataRequirement,
+  type DcsDocumentData,
+  type DcsDocumentStructure,
+  type DcsLayoutNode,
+  type DcsRequirementField,
+  type DcsSection,
+  type DcsSubTemplateSnapshot,
+  type DcsTemplateData,
+  type DcsTextBlock,
+  isDcsClause,
+  isDcsDocumentData,
+  isDcsTemplateData,
+  type JsonLdReference,
+  type JsonLdTypedValue,
+  type OdrlRule,
+  type OdrlSet,
+} from '@/models/dcs-jsonld'
 import type { SemanticConditionValue } from '@/models/contract-data'
+import type { ContractTemplate, SubTemplateSnapshot } from '@/models/contract-template'
+import type { ContractTemplateResponsible } from '@/models/contract-template-responsible'
 import type {
   ContractTemplateCreateRequest,
   ContractTemplateUpdateManageRequest,
   ContractTemplateUpdateRequest,
 } from '@/models/requests/template-request'
 import type { DcsOperator } from '@/models/semantic/facis-dcs-semantic'
-import { isMergedBlockId, isSameTemplateDataRef } from '@template-repository/utils/template-data-ref'
-import {
-  isDcsDocumentData,
-  isDcsTemplateData,
-  isDcsClause,
-  DCS_JSONLD_CONTEXT,
-  type DcsContractData,
-  type DcsDocumentData,
-  type DcsTemplateData,
-  type DcsBlock,
-  type DcsApprovedTemplate,
-  type DcsDocumentStructure,
-  type DcsClause,
-  type DcsSection,
-  type DcsTextBlock,
-  type DcsLayoutNode,
-  type DcsContentSegment,
-  type DcsDataRequirement,
-  type DcsRequirementField,
-  type DcsSubTemplateSnapshot,
-  type JsonLdTypedValue,
-  type JsonLdReference,
-  type OdrlRule,
-  type OdrlSet,
-} from '@/models/dcs-jsonld'
 import type { ContractTemplateState } from '@/types/contract-template-state'
-import type { ContractTemplateResponsible } from '@/models/contract-template-responsible'
-import { ONTOLOGY_DOMAIN_FIELDS } from '@template-repository/utils/ontology-domain-fields'
-import { DEFAULT_FIELD_CONSTRAINT_ACTION, DCS_ODRL_PROFILE_IRI } from '@template-repository/utils/sla-ontology-catalog'
+import type {
+  MetaData,
+  SemanticCondition,
+  SemanticConditionParameter,
+  SemanticParameterOperator,
+  TemplateTypeValue,
+} from '@template-repository/models/contract-template'
+import type {
+  AddBlockOptions,
+  AddBlockPayload,
+  SubTemplateReference,
+  TemplateDraftState,
+} from '@template-repository/models/template-draft-store'
 
 // ---- MergedApprovedTemplateBlock (UI-only virtual block for composed contract templates) ----
 
@@ -444,16 +444,16 @@ function policySetIri(documentId?: string): string {
   return documentId ? `${documentId}#policy-set` : `${UUID_URN_PREFIX}policy-set`
 }
 
-// ---- ODRL rule parties/target (Workstream F1 — AC3) ----
+// ---- ODRL rule parties/target (DCS ODRL profile: assigner/assignee/target required) ----
 //
 // Template = open parties (ODRL-Offer character): the two sides of a rule
 // aren't bound to real party DIDs yet, so a role-derived open reference is
 // used. Contract instance = bound parties (ODRL-Agreement character): once
 // bound to a real contract, the same role-derived reference still resolves
-// consistently against that contract's own DID, which is what AC3 (presence
-// of odrl:assigner/odrl:assignee/odrl:target) requires; resolving to the
-// real counterpart legal-entity DID is left to the semantic mapper that
-// already publishes bound envelopes for peer exchange.
+// consistently against that contract's own DID, which is what the profile
+// requires (presence of odrl:assigner/odrl:assignee/odrl:target); resolving
+// to the real counterpart legal-entity DID is left to the semantic mapper
+// that already publishes bound envelopes for peer exchange.
 
 function counterpartRole(role: string | undefined): string {
   if (role === 'provider') return 'customer'
@@ -476,7 +476,7 @@ function requirementForField(
   return contractData.find((r) => r['dcs:fields'].some((f) => f['@id'] === fieldId))
 }
 
-/** Assembles the single enclosing odrl:Set (Workstream F1 — AC1) from the flat internal rule array. */
+/** Assembles the single enclosing odrl:Set (DCS ODRL profile) from the flat internal rule array. */
 function assemblePolicySet(policies: readonly OdrlRule[], documentId?: string): OdrlSet {
   const set: OdrlSet = {
     '@id': policySetIri(documentId),
@@ -493,7 +493,7 @@ function assemblePolicySet(policies: readonly OdrlRule[], documentId?: string): 
   return set
 }
 
-/** Flattens the enclosing odrl:Set (or legacy flat array, for graceful loading of already-persisted data) into the flat internal rule array. */
+/** Flattens the enclosing odrl:Set (or the empty "no policies yet" array) into the flat internal rule array. */
 export function flattenPolicySet(policies: OdrlSet | OdrlRule[] | undefined): OdrlRule[] {
   if (!policies) return []
   if (Array.isArray(policies)) return policies

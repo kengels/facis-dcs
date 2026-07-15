@@ -302,9 +302,13 @@ func (r *PostgresContractRepo) ReadArchiveEntries(ctx context.Context, tx *sqlx.
 }
 
 func (r *PostgresContractRepo) MarkArchiveEntryDeleted(ctx context.Context, tx *sqlx.Tx, did string, deletedBy string, reason string) (int, error) {
+	// archive_status must flip to DELETED together with the deletion
+	// metadata: the contract_archive_entries trigger
+	// (migrations/sql/20260305_create_contract_repository.sql) rejects
+	// deletion metadata on rows whose status is still STORED/RETAINED.
 	statement := `
         UPDATE contract_archive_entries
-        SET deleted_at = NOW(), deleted_by = $1, deletion_reason = $2
+        SET archive_status = 'DELETED', deleted_at = NOW(), deleted_by = $1, deletion_reason = $2
         WHERE did = $3 AND deleted_at IS NULL
     `
 	result, err := tx.ExecContext(ctx, statement, deletedBy, reason, did)
@@ -318,9 +322,42 @@ func (r *PostgresContractRepo) MarkArchiveEntryDeleted(ctx context.Context, tx *
 	return int(affected), nil
 }
 
+func (r *PostgresContractRepo) AnnotateArchiveEntry(ctx context.Context, tx *sqlx.Tx, did string, summary string, tags *datatype.JSON) (int, error) {
+	// Only the annotation columns are updated; the immutable-fields trigger
+	// on contract_archive_entries guards the snapshot/evidence columns, and
+	// DELETED entries are excluded so a soft-deleted entry can never be
+	// re-labelled.
+	statement := `
+        UPDATE contract_archive_entries
+        SET summary = $1, tags = COALESCE($2, tags)
+        WHERE did = $3 AND archive_status <> 'DELETED'
+    `
+	result, err := tx.ExecContext(ctx, statement, summary, tags, did)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(affected), nil
+}
+
+func (r *PostgresContractRepo) ReadSignedSignatureFieldNames(ctx context.Context, tx *sqlx.Tx, did string) ([]string, error) {
+	var fields []string
+	err := tx.SelectContext(ctx, &fields, `
+        SELECT field_name FROM contract_signatures
+        WHERE contract_did = $1 AND status = 'SIGNED' AND field_name IS NOT NULL
+    `, did)
+	if err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
 func (r *PostgresContractRepo) ReadArchivedContracts(ctx context.Context, tx *sqlx.Tx) ([]db.ContractMetadata, error) {
 	query := `
-	    SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, evidence
+	    SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, evidence, archive_summary, archive_tags
     FROM contracts_archive_metadata
 	`
 	var cts []db.ContractMetadata
@@ -334,7 +371,7 @@ func (r *PostgresContractRepo) ReadArchivedContracts(ctx context.Context, tx *sq
 
 func (r *PostgresContractRepo) ReadArchivedContractsByFilter(ctx context.Context, tx *sqlx.Tx, values db.SearchValues) ([]db.ContractMetadata, error) {
 	query := `
-	        SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, evidence
+	        SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, evidence, archive_summary, archive_tags
         FROM contracts_archive_metadata
     `
 	conditions, params, err := createSearchConditions(values)
@@ -433,6 +470,13 @@ func createSearchConditions(values db.SearchValues) (*string, []interface{}, err
 	if len(values.ContractData) > 0 {
 		conditions += ` search_vector @@ plainto_tsquery('english', $` + strconv.Itoa(paramIndex) + `) AND`
 		params = append(params, values.ContractData)
+		paramIndex++
+	}
+	if len(values.Tag) > 0 {
+		// Annotation-tag filter (DCS-FR-CSA-11): archive_tags is a JSONB
+		// string array on the archive view, GIN-indexed for containment.
+		conditions += ` archive_tags @> jsonb_build_array($` + strconv.Itoa(paramIndex) + `::text) AND`
+		params = append(params, values.Tag)
 		paramIndex++
 	}
 	if len(values.ParentDID) > 0 {

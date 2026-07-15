@@ -74,6 +74,20 @@ def _scenario_has_skip_tag(scenario):
 def cleanup_database(context):
 	cursor = context.db.cursor()
 
+	try:
+		_cleanup_database(cursor)
+	except Exception:
+		# Leave the shared connection usable for the rest of the suite; the
+		# scenario itself still fails with the original error.
+		context.db.rollback()
+		cursor.close()
+		raise
+
+	context.db.commit()
+	cursor.close()
+
+
+def _cleanup_database(cursor):
 	cursor.execute("DELETE FROM access_attempts")
 	cursor.execute("DELETE FROM ip_lockouts")
 
@@ -90,10 +104,8 @@ def cleanup_database(context):
 
 	cursor.execute("DELETE FROM contract_templates_approval_task")
 	cursor.execute("DELETE FROM contract_templates_review_task")
+	cursor.execute("DELETE FROM template_provenance_credentials")
 	cursor.execute("DELETE FROM contract_templates")
-
-	context.db.commit()
-	cursor.close()
 
 
 
@@ -124,7 +136,10 @@ def before_all(context):
 	# goes through the same origin the dev stack's Hydra client is registered
 	# against (localhost:5173, see deployment/helm/values.dev.yml).
 	context.base_url = os.getenv("BDD_DCS_BASE_URL", "http://localhost:5173/api").rstrip("/")
-	context.http_timeout_seconds = float(os.getenv("BDD_HTTP_TIMEOUT_SECONDS", "20"))
+	# 60s: component-wide audit reads (POST /pac/audit) walk every per-DID
+	# hash chain over IPFS; mid-suite that legitimately exceeds 20s on slower
+	# runners without being wrong.
+	context.http_timeout_seconds = float(os.getenv("BDD_HTTP_TIMEOUT_SECONDS", "60"))
 	context.aliases = {}
 
 	try:

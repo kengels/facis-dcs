@@ -16,6 +16,68 @@ func SetJSONLDContextIRI(iri string) {
 	jsonLDContextIRI = iri
 }
 
+// Semantic Hub anchoring (DCS-FR-TR-03): the schemaRefs every produced
+// document carries default to the historical w3id identifiers and are
+// re-pointed at startup to the hub's ACTIVE, versioned, hub-served URLs
+// (semantichub.AnchorURL) — so each artifact resolvably anchors the exact
+// schema version it was produced against.
+var (
+	schemaRefJSONLDContext = SchemaJSONLDContextV1
+	schemaRefOntology      = SchemaOntologyV1
+	schemaRefSHACLShapes   = SchemaSHACLShapesV1
+	// canonicalOntologyIRIs holds the ACTIVE hub context's prefix -> IRI
+	// map; when set, a document supplying a CONFLICTING IRI for one of
+	// these prefixes is rejected (the hub is authoritative for what the
+	// ontology prefixes mean).
+	canonicalOntologyIRIs map[string]string
+)
+
+// SetSchemaAnchorRefs re-points the schemaRefs of newly produced documents
+// at the Semantic Hub's served URLs.
+func SetSchemaAnchorRefs(contextRef, ontologyRef, shapesRef string) {
+	if contextRef != "" {
+		schemaRefJSONLDContext = contextRef
+	}
+	if ontologyRef != "" {
+		schemaRefOntology = ontologyRef
+	}
+	if shapesRef != "" {
+		schemaRefSHACLShapes = shapesRef
+	}
+}
+
+// SetCanonicalOntologyIRIs installs the ACTIVE hub context's prefix -> IRI
+// map for enforcement during normalization.
+func SetCanonicalOntologyIRIs(iris map[string]string) {
+	canonicalOntologyIRIs = iris
+}
+
+// enforceCanonicalOntologyIRIs rejects documents whose @context redefines a
+// hub-declared prefix to a different IRI (DCS-FR-TR-03: templating and
+// contracting validate against the Semantic Hub's active schema).
+func enforceCanonicalOntologyIRIs(data documentData) error {
+	if len(canonicalOntologyIRIs) == 0 {
+		return nil
+	}
+	context, ok := data["@context"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	for prefix, iri := range context {
+		supplied, ok := iri.(string)
+		if !ok {
+			continue
+		}
+		canonical, known := canonicalOntologyIRIs[prefix]
+		if known && supplied != canonical {
+			return fmt.Errorf(
+				"%w: document @context redefines prefix %q to %q, but the Semantic Hub's active context declares %q",
+				ErrDocumentSchemaConflict, prefix, supplied, canonical)
+		}
+	}
+	return nil
+}
+
 type domainField struct {
 	SchemaRef      string
 	Type           string
@@ -110,6 +172,11 @@ type documentData map[string]any
 // a 500, since it is caused by malformed client-supplied contract data.
 var ErrContractHierarchyInvalid = errors.New("contract hierarchy invariant violated")
 
+// ErrDocumentSchemaConflict is a client-input error (map to 400): the
+// submitted document's @context redefines a Semantic Hub-declared ontology
+// prefix to a different IRI (DCS-FR-TR-03).
+var ErrDocumentSchemaConflict = errors.New("document schema conflict")
+
 // childEnumeratingProperties are top-level document properties that would
 // enumerate child contracts from a parent document. The hierarchy is
 // child→parent only: a document may never list its children (that would leak
@@ -157,6 +224,9 @@ func NormalizeTemplateData(raw *datatype.JSON) (*datatype.JSON, error) {
 	if !isCanonicalEnvelope(data) {
 		return nil, errors.New("template data must use the canonical dcs:documentStructure envelope")
 	}
+	if err := enforceCanonicalOntologyIRIs(data); err != nil {
+		return nil, err
+	}
 	normalizeCanonicalEnvelope(data, "dcs:ContractTemplate")
 	if err := validateCanonicalEnvelope(data); err != nil {
 		return nil, err
@@ -185,6 +255,9 @@ func NormalizeContractData(raw *datatype.JSON, requireSemanticValues bool) (*dat
 		return nil, err
 	}
 	if isCanonicalEnvelope(data) {
+		if err := enforceCanonicalOntologyIRIs(data); err != nil {
+			return nil, err
+		}
 		normalizeCanonicalEnvelope(data, "dcs:Contract")
 		if err := validateCanonicalEnvelope(data); err != nil {
 			return nil, err
@@ -322,6 +395,18 @@ func normalizeCanonicalEnvelope(data documentData, documentType string) {
 	normalizeCanonicalContext(data)
 	if rawType, _ := data["@type"].(string); strings.TrimSpace(rawType) == "" {
 		data["@type"] = documentType
+	}
+	// Semantic Hub anchoring (DCS-FR-TR-03): every produced canonical
+	// document records the hub-served, versioned schema URLs it was
+	// produced against. Set once at production time — a document keeps the
+	// anchor of the version it was authored under (synced copies arrive
+	// verbatim and are never re-normalized).
+	if _, exists := data["dcs:schemaRefs"]; !exists {
+		data["dcs:schemaRefs"] = map[string]any{
+			"dcs:jsonLdContext": schemaRefJSONLDContext,
+			"dcs:ontology":      schemaRefOntology,
+			"dcs:shaclShapes":   schemaRefSHACLShapes,
+		}
 	}
 	if _, ok := topLevelValue(data, "contractData").([]any); !ok {
 		if _, exists := topLevelValueExists(data, "contractData"); !exists {
@@ -543,24 +628,17 @@ func validatePolicyOperands(data documentData, fieldIDs map[string]bool) error {
 var odrlRuleBucketKeys = []string{"odrl:permission", "odrl:prohibition", "odrl:duty", "odrl:obligation"}
 
 // collectODRLPolicyRules flattens dcs:policies into a plain list of rule
-// nodes, reading both a bare rule array and the enclosing-odrl:Set shape
-// (see extractContractODRLPolicies for the server-side-enforcement-critical
-// rationale).
+// nodes. Only the canonical shape yields rules: a single enclosing odrl:Set
+// whose rules live in the odrl:duty/odrl:permission/odrl:prohibition/
+// odrl:obligation bucket properties. An array (the empty "no policies yet"
+// default; non-empty bare rule arrays are rejected by
+// validateODRLPoliciesShape before they can be persisted) yields none.
 func collectODRLPolicyRules(policies any) []map[string]any {
-	switch typed := policies.(type) {
-	case []any:
-		result := make([]map[string]any, 0, len(typed))
-		for _, item := range typed {
-			if rule, ok := item.(map[string]any); ok {
-				result = append(result, rule)
-			}
-		}
-		return result
-	case map[string]any:
-		return collectODRLSetRules(typed)
-	default:
+	set, ok := policies.(map[string]any)
+	if !ok {
 		return nil
 	}
+	return collectODRLSetRules(set)
 }
 
 func collectODRLSetRules(set map[string]any) []map[string]any {
@@ -715,9 +793,9 @@ func normalizeContractMetadata(data documentData) {
 		"documentStructure": SchemaDocumentStructureV1,
 		"semanticCondition": SchemaSemanticConditionV1,
 		"contractData":      SchemaContractDataV1,
-		"jsonLdContext":     SchemaJSONLDContextV1,
-		"ontology":          SchemaOntologyV1,
-		"shaclShapes":       SchemaSHACLShapesV1,
+		"jsonLdContext":     schemaRefJSONLDContext,
+		"ontology":          schemaRefOntology,
+		"shaclShapes":       schemaRefSHACLShapes,
 	}
 	data["policyRefs"] = contractPolicyRefs
 	data["validation"] = map[string]any{

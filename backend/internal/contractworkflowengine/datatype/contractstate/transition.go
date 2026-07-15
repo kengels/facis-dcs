@@ -48,11 +48,15 @@ const (
 	// EventDeploy: drives the SIGNED -> ACTIVE transition. The deploy command
 	// (command/deploy.go) validates this edge before dispatching to the
 	// Contract Target System, and the target's ack callback (command/callback.go)
-	// validates it again before flipping the contract to ACTIVE.
+	// validates it again before flipping the contract to ACTIVE. From ACTIVE
+	// the same event is an idempotent re-dispatch (ACTIVE -> ACTIVE): signing
+	// completion auto-deploys and the real target acknowledges within moments
+	// (DCS-FR-CWE-06/SM-12), so a manual /contract/deploy — and the second
+	// ack it produces — must stay valid for an already-activated contract.
 	EventDeploy Event = "DEPLOY"
 
 	// EventRevoke: signingmanagement/command/revoke.go transitions the contract
-	// Signed/Active -> Revoked after a signature is revoked (DCS-OR-C2PA-006 AC5,
+	// Signed/Active -> Revoked after a signature is revoked (DCS-OR-C2PA-006,
 	// C2PA lifecycle banner "suspended").
 	EventRevoke Event = "REVOKE"
 
@@ -87,9 +91,8 @@ var Transitions = map[ContractState]map[Event][]ContractState{
 		// Offered -> Negotiation: the creator submits the offered contract to
 		// start the negotiation round (mirrors Draft -> Negotiation; see
 		// command/submit.go's Offered branch). Without this edge the
-		// documented DRAFT -> OFFERED -> NEGOTIATION -> SUBMITTED -> ...
-		// sequence (docs/anforderung.md) is unreachable once a contract has
-		// been offered.
+		// DRAFT -> OFFERED -> NEGOTIATION -> SUBMITTED -> ... sequence is
+		// unreachable once a contract has been offered.
 		EventSubmit:    {Negotiation},
 		EventWithdraw:  {Withdrawn},
 		EventTerminate: {Terminated},
@@ -129,11 +132,17 @@ var Transitions = map[ContractState]map[Event][]ContractState{
 		// NOTE: Withdraw is intentionally NOT allowed once Approved.
 	},
 	Signed: {
+		// Signed -> Signed: a further signatory applies their signature on a
+		// multi-signer contract (DCS-FR-SM-07/-17). The deploy command gates
+		// on ALL declared signature fields being signed, so a partially
+		// signed contract can never activate.
+		EventSign:      {Signed},
 		EventDeploy:    {Active},
 		EventRevoke:    {Revoked},
 		EventTerminate: {Terminated},
 	},
 	Active: {
+		EventDeploy:    {Active},
 		EventRevoke:    {Revoked},
 		EventTerminate: {Terminated},
 	},
