@@ -74,7 +74,14 @@ function onModalClose() {
         <p v-else data-test-id="template-verification-result" class="mt-4 text-success">Valid — no findings</p>
 
         <div class="modal-action mt-2">
-          <button type="button" class="btn btn-outline" @click="onModalClose">Close</button>
+          <button
+            type="button"
+            data-test-id="template-verification-close"
+            class="btn btn-outline"
+            @click="onModalClose"
+          >
+            Close
+          </button>
         </div>
       </div>
     </dialog>

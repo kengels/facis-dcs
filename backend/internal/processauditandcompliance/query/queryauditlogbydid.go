@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -73,6 +74,38 @@ func (h *AuditLogByDIDAuditor) Handle(ctx context.Context, query GetAuditLogByDI
 	if err != nil {
 		return nil, fmt.Errorf("could not read audit log entries: %w", err)
 	}
+
+	// The IPFS audit chain is anchored asynchronously from the transactional
+	// outbox. Lifecycle screens must nevertheless see a just-committed domain
+	// decision after reload. Overlay the canonical outbox rows and de-duplicate
+	// entries that have already reached the IPFS chain by their stable ID.
+	outboxEntries := make([]datatype.AuditLogEntry, 0)
+	if err := tx.SelectContext(ctx, &outboxEntries, `
+		SELECT id, component, event_type, event_data, did, created_at,
+		       NULL::text AS res_log_pred_cid, NULL::text AS global_log_pred_cid
+		FROM outbox_events
+		WHERE component = $1 AND did = $2
+		ORDER BY created_at DESC, id DESC
+	`, query.Scope.String(), query.DID); err != nil {
+		return nil, fmt.Errorf("could not read transactional audit entries: %w", err)
+	}
+	seen := make(map[int64]struct{}, len(result)+len(outboxEntries))
+	for _, entry := range result {
+		seen[entry.ID] = struct{}{}
+	}
+	for _, entry := range outboxEntries {
+		if _, exists := seen[entry.ID]; exists {
+			continue
+		}
+		result = append(result, entry)
+		seen[entry.ID] = struct{}{}
+	}
+	sort.SliceStable(result, func(i, j int) bool {
+		if result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].ID > result[j].ID
+		}
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
 	evt, err := buildAuditEvent(query)
 	if err != nil {
 		return nil, fmt.Errorf("could not build audit event: %w", err)

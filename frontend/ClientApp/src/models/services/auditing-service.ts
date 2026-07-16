@@ -5,6 +5,7 @@ export interface AuditReportArtifact {
   bytes: ArrayBuffer
   contentType: string
   filename: string
+  reportId?: string
 }
 
 export interface AuditingService {

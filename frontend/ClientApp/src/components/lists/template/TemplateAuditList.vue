@@ -61,7 +61,10 @@ const policyBadgeClass = (audit: TemplateAuditItem) => {
           <div>Copied by: {{ audit.event_data.copied_by }}</div>
         </div>
         <div v-else-if="eventType.isSubmitEvent(audit)" class="flex justify-between">
-          <div>Submitted by: {{ audit.event_data.submitted_by }}</div>
+          <div>
+            <div>Submitted by: {{ audit.event_data.submitted_by }}</div>
+            <div v-if="audit.event_data.comments?.length">Comment: {{ audit.event_data.comments.join(', ') }}</div>
+          </div>
           <div>
             Transition:
             <span class="badge badge-outline badge-xs badge-secondary">
@@ -75,6 +78,9 @@ const policyBadgeClass = (audit: TemplateAuditItem) => {
         </div>
         <div v-else-if="eventType.isApproveEvent(audit)">
           <div>Approved by: {{ audit.event_data.approved_by }}</div>
+          <div v-if="audit.event_data.decision_notes?.length">
+            Decision: {{ audit.event_data.decision_notes.join(', ') }}
+          </div>
         </div>
         <div v-else-if="eventType.isRejectEvent(audit)" class="flex justify-between">
           <div>Rejected by: {{ audit.event_data.rejected_by }}</div>
@@ -85,6 +91,15 @@ const policyBadgeClass = (audit: TemplateAuditItem) => {
         </div>
         <div v-else-if="eventType.isUpdateEvent(audit)">
           <div>Updated by: {{ audit.event_data.updated_by }}</div>
+          <div
+            v-if="audit.event_data.old_description !== undefined || audit.event_data.new_description !== undefined"
+            data-test-id="template-audit-update-description"
+          >
+            Description:
+            <span>{{ audit.event_data.old_description || '—' }}</span>
+            →
+            <span>{{ audit.event_data.new_description || '—' }}</span>
+          </div>
         </div>
         <div v-else-if="eventType.isSearchEvent(audit)">
           <div>Retrieved by: {{ audit.event_data.retrieved_by }}</div>

@@ -2,7 +2,6 @@
 
 import os
 import re
-import socket
 import sys
 from pathlib import Path
 import psycopg2
@@ -28,47 +27,28 @@ def _safe_artifact_name(name):
 
 
 def _ensure_browser(context):
-	if getattr(context, "browser", None) is not None:
+	# Behave removes attributes written in before_scenario when it pops the
+	# scenario context layer. Keep the run-wide Playwright driver in private
+	# attributes, which bypass that scoped stack, so a failed outline example
+	# cannot orphan a live sync driver and start a second one inside its loop.
+	if getattr(context, "_ui_browser", None) is not None:
 		return
 	try:
 		from playwright.sync_api import sync_playwright
 	except ImportError as exc:
 		raise RuntimeError(
-			"@ui scenarios require Playwright; run "
-			"'make -C tests/bdd setup_playwright'"
+			"@ui scenarios require the pinned browser runner; run "
+			"'make -C tests/bdd run_bdd_ui_kind_once'"
 		) from exc
-	context.playwright = sync_playwright().start()
-	context.browser = context.playwright.chromium.launch(headless=True)
+	context._ui_playwright = sync_playwright().start()
+	context._ui_browser = context._ui_playwright.chromium.launch(
+		headless=True,
+	)
 
 
 def _ui_scenario_failed(scenario):
 	status = getattr(scenario, "status", None)
 	return getattr(status, "name", str(status)).lower() == "failed"
-
-
-def _install_localhost_resolver_fallback():
-    """RFC 6761 reserves *.localhost for loopback, but not every resolver
-    actually implements that (e.g. plain /etc/nsswitch.conf 'dns' without
-    'files' or a wildcard stub). The two-instance BDD suite's did:web
-    hostnames (dcs-a.localhost, dcs-b.localhost) need to resolve host-side
-    without editing /etc/hosts or using sudo (explicit harness constraint) —
-    so wrap socket.getaddrinfo: only for hostnames ending in '.localhost'
-    that the real resolver fails to resolve, synthesize a loopback (127.0.0.1)
-    result instead of raising. A no-op wherever the system resolver already
-    handles it (e.g. GitHub runners via systemd-resolved), since the real
-    resolver is always tried first.
-    """
-    real_getaddrinfo = socket.getaddrinfo
-
-    def _getaddrinfo(host, port, *args, **kwargs):
-        try:
-            return real_getaddrinfo(host, port, *args, **kwargs)
-        except socket.gaierror:
-            if isinstance(host, str) and host.endswith(".localhost"):
-                return real_getaddrinfo("127.0.0.1", port, *args, **kwargs)
-            raise
-
-    socket.getaddrinfo = _getaddrinfo
 
 
 def _normalize_tag(tag):
@@ -126,6 +106,7 @@ def cleanup_database(context):
 def _cleanup_database(cursor):
 	cursor.execute("DELETE FROM access_attempts")
 	cursor.execute("DELETE FROM ip_lockouts")
+	cursor.execute("DELETE FROM pac_incidents")
 
 	cursor.execute("DELETE FROM contract_negotiation_task")
 	cursor.execute("DELETE FROM contract_approval_task")
@@ -162,7 +143,7 @@ def before_scenario(context, scenario):
 		)
 		artifact_dir.mkdir(parents=True, exist_ok=True)
 		context.ui_artifact_dir = artifact_dir
-		context.browser_context = context.browser.new_context(
+		context.browser_context = context._ui_browser.new_context(
 			accept_downloads=True,
 			record_video_dir=str(artifact_dir / "video"),
 			viewport={"width": 1440, "height": 1000},
@@ -191,7 +172,6 @@ def after_scenario(context, scenario):
 
 
 def before_all(context):
-	_install_localhost_resolver_fallback()
 
 	steps_dir = Path(__file__).resolve().parent / "steps"
 	steps_dir_str = str(steps_dir)
@@ -214,8 +194,8 @@ def before_all(context):
 	# runners without being wrong.
 	context.http_timeout_seconds = float(os.getenv("BDD_HTTP_TIMEOUT_SECONDS", "60"))
 	context.aliases = {}
-	context.playwright = None
-	context.browser = None
+	context._ui_playwright = None
+	context._ui_browser = None
 	context.browser_context = None
 	context.page = None
 
@@ -230,8 +210,8 @@ def before_all(context):
 
 
 def after_all(context):
-	if getattr(context, "browser", None) is not None:
-		context.browser.close()
-	if getattr(context, "playwright", None) is not None:
-		context.playwright.stop()
+	if getattr(context, "_ui_browser", None) is not None:
+		context._ui_browser.close()
+	if getattr(context, "_ui_playwright", None) is not None:
+		context._ui_playwright.stop()
 	context.db.close()

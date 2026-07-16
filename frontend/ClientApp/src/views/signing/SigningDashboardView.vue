@@ -23,7 +23,7 @@ const selectedContractDid = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-const { isSigner } = useContractPermissions()
+const { isManager, isSigner } = useContractPermissions()
 
 // Per-contract state: signing in progress, result envelope, verify result.
 const signing = ref<Record<string, boolean>>({})
@@ -102,7 +102,19 @@ onMounted(async () => {
 })
 
 function tasksFor(contractDid: string): SigningTask[] {
-  return signingTasks.value.filter((task) => task.did === contractDid)
+  return signingTasks.value.filter((task) => task.did === contractDid).sort((a, b) => a.order - b.order)
+}
+
+function dependencySatisfied(task: SigningTask): boolean {
+  if (!task.dependency) return true
+  return tasksFor(task.did).some(
+    (candidate) => candidate.field_name === task.dependency && candidate.state === 'SIGNED',
+  )
+}
+
+function ceremonyDependencySatisfied(task: SigningTask): boolean {
+  if (!task.dependency) return true
+  return dependencySatisfied(task) || Boolean(verifiedSigners.value[`${task.did}:${task.dependency}`])
 }
 
 function openTask(contract: SignatureContract) {
@@ -222,20 +234,33 @@ async function compliance(contract: SignatureContract) {
 
               <div
                 v-if="verifyResults[contract.did]"
+                data-test-id="signature-integrity-result"
                 class="mt-1 text-xs"
-                :class="verifyResults[contract.did]?.match ? 'text-success' : 'text-error'"
+                :class="verifyResults[contract.did]?.integrity_status === 'VALID' ? 'text-success' : 'text-error'"
               >
-                MR/HR: {{ verifyResults[contract.did]?.match ? 'match ✓' : 'mismatch ✗' }} ({{
+                {{ verifyResults[contract.did]?.integrity_status.toLowerCase() }} · MR/HR:
+                {{ verifyResults[contract.did]?.match ? 'match ✓' : 'mismatch ✗' }} ({{
                   verifyResults[contract.did]?.sig_count
                 }}
                 sig(s))
+              </div>
+              <div v-if="verifyResults[contract.did]" data-test-id="signature-envelope-result" class="mt-1 text-xs">
+                {{ verifyResults[contract.did]?.envelope_status.toLowerCase() }} ·
+                {{ verifyResults[contract.did]?.sig_count }} signature(s)
               </div>
               <div v-if="verifyResults[contract.did]?.findings?.length" class="mt-1 text-xs">
                 Verify: {{ verifyResults[contract.did]?.findings?.[0] }}
               </div>
 
-              <div v-if="validateResults[contract.did]?.findings?.length" class="mt-1 text-xs">
-                Validation: {{ validateResults[contract.did]?.findings?.[0] }}
+              <div v-if="validateResults[contract.did]" data-test-id="signature-validation-result" class="mt-1 text-xs">
+                {{ validateResults[contract.did]?.status.toLowerCase() }}
+              </div>
+              <div
+                v-if="(validateResults[contract.did]?.findings?.length ?? 0) > 0"
+                data-test-id="signature-validation-errors"
+                class="mt-1 text-xs text-error"
+              >
+                {{ validateResults[contract.did]?.findings?.join(', ') }}
               </div>
               <div v-if="complianceResults[contract.did]?.findings?.length" class="mt-1 text-xs">
                 Compliance: {{ complianceResults[contract.did]?.findings?.[0] }}
@@ -247,12 +272,21 @@ async function compliance(contract: SignatureContract) {
                 <span class="ml-2 badge badge-sm" data-test-id="signing-task-status" :data-test-key="task.field_name">
                   {{ task.state }}
                 </span>
+                <span class="ml-2" data-test-id="signing-task-order" :data-test-key="task.field_name">
+                  Order {{ task.order }}
+                </span>
+                <span class="ml-2" data-test-id="signing-task-dependency" :data-test-key="task.field_name">
+                  Depends on {{ task.dependency ?? 'none' }}
+                </span>
+                <span class="ml-2" data-test-id="signing-task-deadline" :data-test-key="task.field_name">
+                  Deadline {{ task.deadline ? new Date(task.deadline).toLocaleString() : 'not declared' }}
+                </span>
                 <time
-                  v-if="completionTimestamps[`${contract.did}:${task.field_name}`]"
+                  v-if="completionTimestamps[`${contract.did}:${task.field_name}`] || task.signed_at"
                   data-test-id="signing-completion-timestamp"
                   :data-test-key="task.field_name"
                 >
-                  {{ completionTimestamps[`${contract.did}:${task.field_name}`] }}
+                  {{ completionTimestamps[`${contract.did}:${task.field_name}`] || task.signed_at }}
                 </time>
               </div>
             </td>
@@ -261,13 +295,27 @@ async function compliance(contract: SignatureContract) {
                 class="btn btn-sm btn-primary"
                 data-test-id="signing-task-open"
                 :data-test-key="contract.did"
-                :disabled="!isSigner"
+                :disabled="!isSigner && !isManager"
                 @click="openTask(contract)"
               >
                 Open
               </button>
-              <button class="btn btn-outline btn-sm" :disabled="!isSigner" @click="verify(contract)">Verify</button>
-              <button class="btn btn-outline btn-sm" :disabled="!isSigner" @click="validate(contract)">Validate</button>
+              <button
+                class="btn btn-outline btn-sm"
+                data-test-id="signature-integrity-verify"
+                :disabled="!isManager"
+                @click="verify(contract)"
+              >
+                Verify
+              </button>
+              <button
+                class="btn btn-outline btn-sm"
+                data-test-id="signature-applied-validate"
+                :disabled="!isManager"
+                @click="validate(contract)"
+              >
+                Validate
+              </button>
               <button class="btn btn-outline btn-sm" :disabled="!isSigner" @click="compliance(contract)">
                 Compliance
               </button>
@@ -282,7 +330,12 @@ async function compliance(contract: SignatureContract) {
                   class="btn btn-sm btn-primary"
                   data-test-id="signing-ceremony-start"
                   :data-test-key="task.field_name"
-                  :disabled="!isSigner || signing[selectedContractDid] || task.state === 'SIGNED'"
+                  :disabled="
+                    !isSigner ||
+                    signing[selectedContractDid] ||
+                    task.state === 'SIGNED' ||
+                    !ceremonyDependencySatisfied(task)
+                  "
                   @click="sign(contracts.find((item) => item.did === selectedContractDid)!, task)"
                 >
                   Sign {{ task.field_name }}
@@ -294,7 +347,9 @@ async function compliance(contract: SignatureContract) {
                   data-test-id="signing-apply-signature"
                   :data-test-key="task.field_name"
                   :disabled="
-                    !verifiedSigners[`${selectedContractDid}:${task.field_name}`] || signing[selectedContractDid]
+                    !verifiedSigners[`${selectedContractDid}:${task.field_name}`] ||
+                    signing[selectedContractDid] ||
+                    !dependencySatisfied(task)
                   "
                   @click="applyVerifiedSignature(contracts.find((item) => item.did === selectedContractDid)!, task)"
                 >

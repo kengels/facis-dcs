@@ -6,7 +6,6 @@ import { useTemplatePermissions } from '@/modules/template-repository/composable
 import { TemplateType } from '@/modules/template-repository/models/contract-template'
 import { ROUTES } from '@/router/router'
 import { contractTemplateService } from '@/services/contract-template-service'
-import { useContractTemplatesStore } from '@/stores/contract-templates-store'
 import { type ContractTemplateState, TemplateState } from '@/types/contract-template-state'
 import type { PartialContractTemplate } from '@/models/contract-template'
 
@@ -32,20 +31,26 @@ const props = defineProps<{
   template: PartialContractTemplate
 }>()
 
+const emit = defineEmits<{
+  lifecycleChanged: []
+}>()
+
 const confirmationModal = useTemplateRef<InstanceType<typeof ConfirmationModal>>('confirmation-modal')
+const deletionModal = useTemplateRef<InstanceType<typeof ConfirmationModal>>('deletion-modal')
 
 const router = useRouter()
 
 const { isManager } = useTemplatePermissions()
 
 const isPublishing = ref(false)
-
-const templatesStore = useContractTemplatesStore()
+const isRegistering = ref(false)
+const registrationError = ref('')
 
 const canArchive = computed(() => {
   const archiveStates: ContractTemplateState[] = [TemplateState.deleted, TemplateState.deprecated]
   return isManager.value && !archiveStates.includes(props.template.state)
 })
+const canDelete = computed(() => isManager.value && props.template.state === TemplateState.deprecated)
 
 const showPublishButton = computed(() => {
   return (
@@ -69,10 +74,24 @@ const archive = async () => {
     const { isCanceled } = await confirmationModal.value.reveal({ message: 'Proceed with archiving?' })
     if (!isCanceled) {
       await contractTemplateService.archive({ did: props.template.did, updated_at: props.template.updated_at })
+      emit('lifecycleChanged')
       await router.push({ name: ROUTES.TEMPLATES.LIST })
     }
   } catch (err) {
     console.error('Archiving failed:', err)
+  }
+}
+
+const softDelete = async () => {
+  if (!deletionModal.value || !canDelete.value) return
+  const { isCanceled } = await deletionModal.value.reveal({ message: 'Soft-delete this deprecated template?' })
+  if (isCanceled) return
+  try {
+    await contractTemplateService.archive({ did: props.template.did, updated_at: props.template.updated_at })
+    emit('lifecycleChanged')
+    await router.push({ name: ROUTES.TEMPLATES.LIST })
+  } catch (err) {
+    console.error('Template deletion failed:', err)
   }
 }
 
@@ -84,6 +103,7 @@ const publish = async () => {
     if (!isCanceled) {
       isPublishing.value = true
       await contractTemplateService.publish({ did: props.template.did, updated_at: props.template.updated_at })
+      emit('lifecycleChanged')
       await router.push({ name: ROUTES.TEMPLATES.LIST })
     }
   } catch (err) {
@@ -94,12 +114,18 @@ const publish = async () => {
 }
 
 async function register() {
+  if (isRegistering.value) return
+  isRegistering.value = true
+  registrationError.value = ''
   try {
     await contractTemplateService.register({ did: props.template.did })
-
-    await templatesStore.loadTemplates()
+    emit('lifecycleChanged')
     await router.push({ name: ROUTES.TEMPLATES.LIST })
-  } catch {}
+  } catch (error: unknown) {
+    registrationError.value = error instanceof Error ? error.message : 'Template registration failed.'
+  } finally {
+    isRegistering.value = false
+  }
 }
 </script>
 
@@ -109,10 +135,19 @@ async function register() {
     data-test-id="template-manager-register"
     :data-test-key="template.did"
     :class="$attrs.class"
+    :disabled="isRegistering"
     @click="register"
   >
-    Register
+    <span
+      v-if="isRegistering"
+      data-test-id="template-register-pending"
+      class="loading loading-sm loading-spinner"
+    ></span>
+    {{ isRegistering ? 'Registering…' : 'Register' }}
   </button>
+  <p v-if="registrationError" data-test-id="template-register-error" class="text-sm text-error">
+    {{ registrationError }}
+  </p>
   <button v-if="showPublishButton" :class="$attrs.class" :disabled="isPublishing" @click="publish">
     <span v-if="isPublishing" class="loading loading-sm loading-spinner"></span>
     Publish
@@ -126,5 +161,24 @@ async function register() {
   >
     Archive
   </button>
-  <ConfirmationModal ref="confirmation-modal" />
+  <button
+    v-if="canDelete"
+    data-test-id="template-manager-delete"
+    :data-test-key="template.did"
+    :class="[filteredClass, 'btn-error']"
+    @click="softDelete"
+  >
+    Delete
+  </button>
+  <ConfirmationModal
+    ref="confirmation-modal"
+    dialog-test-id="template-manager-confirmation"
+    confirm-test-id="template-manager-confirm"
+    :test-key="template.did"
+  />
+  <ConfirmationModal
+    ref="deletion-modal"
+    dialog-test-id="template-delete-confirmation"
+    confirm-test-id="template-delete-confirm"
+  />
 </template>

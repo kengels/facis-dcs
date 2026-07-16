@@ -19,6 +19,7 @@ import (
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatetype"
 	"digital-contracting-service/internal/templaterepository/datatype/reviewtaskstate"
 	"digital-contracting-service/internal/templaterepository/db"
+	"digital-contracting-service/internal/templaterepository/dependency"
 	templateevents "digital-contracting-service/internal/templaterepository/event"
 
 	"github.com/jmoiron/sqlx"
@@ -79,6 +80,9 @@ func (h *UpdateManager) Handle(ctx context.Context, cmd UpdateManageCmd) error {
 		oldData.State == contracttemplatestate.Deprecated.String() ||
 		oldData.State == contracttemplatestate.Registered.String() {
 		return errors.New("invalid contract template state")
+	}
+	if err := dependency.ValidateTemplateData(ctx, tx, h.CTRepo, cmd.DID, cmd.TemplateData); err != nil {
+		return fmt.Errorf("template dependency validation failed: %w", err)
 	}
 
 	if cmd.State != nil {
@@ -173,6 +177,11 @@ func (h *UpdateManager) Handle(ctx context.Context, cmd UpdateManageCmd) error {
 	var templateType string
 	if cmd.TemplateType != nil {
 		templateType = cmd.TemplateType.String()
+	}
+
+	err = h.CTRepo.CreateHistoryEntryForDID(ctx, tx, cmd.DID)
+	if err != nil {
+		return fmt.Errorf("could not create history entry: %w", err)
 	}
 
 	newData := db.ContractTemplateUpdateData{

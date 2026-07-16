@@ -10,9 +10,19 @@ import { useTemplatePermissions } from '@template-repository/composables/useTemp
 import { useDcsDraftStore } from '@template-repository/store/dcsDraftStore'
 import { useTemplateEditorUiStore } from '@template-repository/store/templateEditorUiStore.ts'
 import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import TemplateAuditList from '@/components/lists/template/TemplateAuditList.vue'
+import { useContractTemplateEventType } from '@/composables/useContractTemplateEventType'
+import { contractTemplateService } from '@/services/contract-template-service'
+import { TemplateState } from '@/types/contract-template-state'
+import { toProperCase } from '@/utils/string'
 import AuditView from './AuditView.vue'
+import type {
+  ContractTemplateAuditResponse,
+  ContractTemplateHistoryResponse,
+  TemplateProvenanceResponse,
+} from '@/models/responses/template-response'
 
 withDefaults(
   defineProps<{
@@ -34,6 +44,57 @@ const tabs = computed(() => {
 })
 const currentTabNumber = computed(() => 1 + tabs.value.map((tab) => tab.id).indexOf(activeTab.value))
 const { isManager } = useTemplatePermissions()
+const { isApproveEvent, isRejectEvent } = useContractTemplateEventType()
+const lifecycleAudit = ref<ContractTemplateAuditResponse>([])
+const versionHistory = ref<ContractTemplateHistoryResponse>([])
+const provenance = ref<TemplateProvenanceResponse>([])
+const versionHistoryError = ref('')
+const provenanceError = ref('')
+const currentVersion = computed(() => {
+  if (!draftStore.did || draftStore.version == null || !draftStore.state || !draftStore.updated_at) return null
+  return {
+    did: draftStore.did,
+    version: draftStore.version,
+    state: draftStore.state,
+    updatedAt: draftStore.updated_at,
+  }
+})
+const approvalAudit = computed(() =>
+  lifecycleAudit.value.filter((entry) => isApproveEvent(entry) || isRejectEvent(entry)),
+)
+
+watch(
+  () => draftStore.did,
+  async (did) => {
+    lifecycleAudit.value = []
+    versionHistory.value = []
+    provenance.value = []
+    versionHistoryError.value = ''
+    provenanceError.value = ''
+    if (!did) return
+
+    // Audit evidence is independent of the optional version/provenance
+    // projections. A failure in either projection must not hide committed
+    // lifecycle decisions and their comments.
+    lifecycleAudit.value = await contractTemplateService.audit({ did })
+    const [historyResult, provenanceResult] = await Promise.allSettled([
+      contractTemplateService.history(did),
+      contractTemplateService.provenance(did),
+    ])
+    if (draftStore.did !== did) return
+    if (historyResult.status === 'fulfilled') {
+      versionHistory.value = historyResult.value
+    } else {
+      versionHistoryError.value = 'Version history could not be loaded.'
+    }
+    if (provenanceResult.status === 'fulfilled') {
+      provenance.value = provenanceResult.value
+    } else {
+      provenanceError.value = 'Provenance history could not be loaded.'
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -74,10 +135,70 @@ const { isManager } = useTemplatePermissions()
                   Template Details
                 </div>
                 <div v-if="state" data-test-id="template-lifecycle-status" class="badge badge-sm badge-secondary">
-                  {{ state }}
+                  {{ toProperCase(state) }}
                 </div>
               </h2>
               <DetailsEditor />
+              <section class="mt-4 border-t border-base-300 pt-4">
+                <h3 class="mb-2 text-sm font-semibold">Lifecycle evidence</h3>
+                <div data-test-id="template-review-history">
+                  <TemplateAuditList v-if="lifecycleAudit.length" :audits="lifecycleAudit" />
+                  <p v-else class="text-sm text-base-content/60">No lifecycle decisions recorded.</p>
+                </div>
+                <div data-test-id="template-approval-history" class="mt-2 text-sm text-base-content/70">
+                  <TemplateAuditList v-if="approvalAudit.length" :audits="approvalAudit" />
+                  <p v-else>No approval decisions recorded.</p>
+                </div>
+                <div data-test-id="template-version-history" class="mt-3 text-sm">
+                  <p
+                    v-if="versionHistoryError"
+                    data-test-id="template-version-history-error"
+                    class="alert alert-error"
+                    role="alert"
+                  >
+                    {{ versionHistoryError }}
+                  </p>
+                  <ol v-if="currentVersion || versionHistory.length">
+                    <li v-if="currentVersion" :data-test-key="`${currentVersion.did}-${currentVersion.version}`">
+                      Current version {{ currentVersion.version }} · {{ currentVersion.state }} ·
+                      {{ currentVersion.updatedAt }}
+                    </li>
+                    <li
+                      v-for="item in versionHistory"
+                      :key="`${item.did}-${item.version}-${item.updated_at}`"
+                      :data-test-key="`${item.did}-${item.version}`"
+                    >
+                      Historical version {{ item.version }} · {{ item.state }} · {{ item.updated_at }}
+                    </li>
+                  </ol>
+                  <p v-else-if="!versionHistoryError" class="text-base-content/60">No version records available.</p>
+                </div>
+                <div data-test-id="template-provenance-history" class="mt-3 text-sm">
+                  <p
+                    v-if="provenanceError"
+                    data-test-id="template-provenance-history-error"
+                    class="alert alert-error"
+                    role="alert"
+                  >
+                    {{ provenanceError }}
+                  </p>
+                  <ol v-if="provenance.length">
+                    <li v-for="item in provenance" :key="item.vc_id" :data-test-key="item.vc_id">
+                      Version {{ item.version }} · {{ item.vc_id }}
+                    </li>
+                  </ol>
+                  <p v-else-if="!provenanceError" class="text-base-content/60">
+                    No registered provenance credentials recorded.
+                  </p>
+                </div>
+                <p
+                  v-if="state === TemplateState.approved"
+                  data-test-id="template-contract-ready-indicator"
+                  class="mt-3 badge badge-success"
+                >
+                  Contract ready
+                </p>
+              </section>
             </div>
           </div>
         </div>

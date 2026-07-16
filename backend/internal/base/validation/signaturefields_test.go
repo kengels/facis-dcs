@@ -28,3 +28,20 @@ func TestRequiredSignatureFields(t *testing.T) {
 		t.Fatalf("expected nil for unparseable data, got %v", got)
 	}
 }
+
+func TestDeclaredSignatureFieldsPreservesOrderAndDependencies(t *testing.T) {
+	doc := []byte(`{"signatureFields":[{"signatoryName":"First"},{"signatoryName":"Second"},{"signatoryName":"Third"}]}`)
+	got := DeclaredSignatureFields(doc)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 declarations, got %d", len(got))
+	}
+	if got[0].Order != 1 || got[0].Dependency != nil {
+		t.Fatalf("unexpected first declaration: %#v", got[0])
+	}
+	if got[1].Order != 2 || got[1].Dependency == nil || *got[1].Dependency != "First" {
+		t.Fatalf("unexpected second declaration: %#v", got[1])
+	}
+	if got[2].Order != 3 || got[2].Dependency == nil || *got[2].Dependency != "Second" {
+		t.Fatalf("unexpected third declaration: %#v", got[2])
+	}
+}

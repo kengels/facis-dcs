@@ -75,6 +75,12 @@ func TestSubmitAllowedFromOffered(t *testing.T) {
 	if err := ValidateOutcome(Offered, EventSubmit, Negotiation); err != nil {
 		t.Fatalf("expected Offered -Submit-> Negotiation to be a valid outcome, got: %v", err)
 	}
+	if err := ValidateOutcome(Offered, EventSubmit, Submitted); err != nil {
+		t.Fatalf("expected Offered -Submit-> Submitted to be a valid outcome without negotiation, got: %v", err)
+	}
+	if err := ValidateOutcome(Draft, EventSubmit, Submitted); err != nil {
+		t.Fatalf("expected Draft -Submit-> Submitted to be a valid outcome without negotiation, got: %v", err)
+	}
 	if err := ValidateOutcome(Offered, EventSubmit, Approved); err == nil {
 		t.Fatalf("expected Offered -Submit-> Approved to be rejected as an undeclared outcome")
 	}
@@ -142,12 +148,24 @@ func TestSignReentryFromSigned(t *testing.T) {
 }
 
 func TestValidateOutcomeRejectsUndeclaredTarget(t *testing.T) {
-	// Submit from Draft may only reach Negotiation, never e.g. Approved.
+	// Submit from Draft may reach Negotiation or Submitted, never e.g. Approved.
 	if err := ValidateOutcome(Draft, EventSubmit, Approved); err == nil {
 		t.Fatalf("expected Draft -Submit-> Approved to be rejected as an undeclared outcome")
 	}
 	if err := ValidateOutcome(Draft, EventSubmit, Negotiation); err != nil {
 		t.Fatalf("expected Draft -Submit-> Negotiation to be a declared outcome, got: %v", err)
+	}
+	if err := ValidateOutcome(Draft, EventSubmit, Submitted); err != nil {
+		t.Fatalf("expected Draft -Submit-> Submitted to be a declared outcome, got: %v", err)
+	}
+}
+
+func TestRejectedContractCanBeCorrectedBeforeResubmission(t *testing.T) {
+	if err := ValidateTransition(Rejected, EventUpdate); err != nil {
+		t.Fatalf("expected Update to be allowed from Rejected, got: %v", err)
+	}
+	if !IsAllowed(Rejected, EventUpdate, Rejected) {
+		t.Fatal("expected Rejected -Update-> Rejected to be a declared outcome")
 	}
 }
 

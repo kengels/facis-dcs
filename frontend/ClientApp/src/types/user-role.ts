@@ -1,43 +1,46 @@
-export type UserRole =
-  | 'TEMPLATE_CREATOR'
-  | 'TEMPLATE_REVIEWER'
-  | 'TEMPLATE_APPROVER'
-  | 'TEMPLATE_MANAGER'
-  | 'CONTRACT_CREATOR'
-  | 'CONTRACT_REVIEWER'
-  | 'CONTRACT_APPROVER'
-  | 'CONTRACT_MANAGER'
-  | 'CONTRACT_NEGOTIATOR'
-  | 'CONTRACT_SIGNER'
-  | 'CONTRACT_OBSERVER'
-  | 'ARCHIVE_MANAGER'
-  | 'AUDITOR'
-  | 'SYSTEM_ADMINISTRATOR'
-  | 'COMPLIANCE_OFFICER'
-  | 'INTEGRATION_MANAGER'
-  | 'PROCESS_ORCHESTRATOR'
-  | 'VALIDATOR'
+export type UserRole = (typeof UserRole)[keyof typeof UserRole]
+
+export const UserRole = {
+  templateCreator: 'TEMPLATE_CREATOR',
+  templateReviewer: 'TEMPLATE_REVIEWER',
+  templateApprover: 'TEMPLATE_APPROVER',
+  templateManager: 'TEMPLATE_MANAGER',
+  contractCreator: 'CONTRACT_CREATOR',
+  contractReviewer: 'CONTRACT_REVIEWER',
+  contractApprover: 'CONTRACT_APPROVER',
+  contractManager: 'CONTRACT_MANAGER',
+  contractNegotiator: 'CONTRACT_NEGOTIATOR',
+  contractSigner: 'CONTRACT_SIGNER',
+  contractObserver: 'CONTRACT_OBSERVER',
+  archiveManager: 'ARCHIVE_MANAGER',
+  auditor: 'AUDITOR',
+  systemAdministrator: 'SYSTEM_ADMINISTRATOR',
+  complianceOfficer: 'COMPLIANCE_OFFICER',
+  integrationManager: 'INTEGRATION_MANAGER',
+  processOrchestrator: 'PROCESS_ORCHESTRATOR',
+  validator: 'VALIDATOR',
+} as const
 
 /** Maps access-token role claim labels to UserRole ids. */
 const ROLE_LABEL_TO_USER_ROLE: Record<string, UserRole> = {
-  'Template Creator': 'TEMPLATE_CREATOR',
-  'Template Reviewer': 'TEMPLATE_REVIEWER',
-  'Template Approver': 'TEMPLATE_APPROVER',
-  'Template Manager': 'TEMPLATE_MANAGER',
-  'Contract Creator': 'CONTRACT_CREATOR',
-  'Contract Reviewer': 'CONTRACT_REVIEWER',
-  'Contract Approver': 'CONTRACT_APPROVER',
-  'Contract Manager': 'CONTRACT_MANAGER',
-  'Contract Negotiator': 'CONTRACT_NEGOTIATOR',
-  'Contract Signer': 'CONTRACT_SIGNER',
-  'Contract Observer': 'CONTRACT_OBSERVER',
-  'Archive Manager': 'ARCHIVE_MANAGER',
-  Auditor: 'AUDITOR',
-  'Sys. Administrator': 'SYSTEM_ADMINISTRATOR',
-  'Compliance Officer': 'COMPLIANCE_OFFICER',
-  'Integration Manager': 'INTEGRATION_MANAGER',
-  'Process Orchestrator': 'PROCESS_ORCHESTRATOR',
-  Validator: 'VALIDATOR',
+  'Template Creator': UserRole.templateCreator,
+  'Template Reviewer': UserRole.templateReviewer,
+  'Template Approver': UserRole.templateApprover,
+  'Template Manager': UserRole.templateManager,
+  'Contract Creator': UserRole.contractCreator,
+  'Contract Reviewer': UserRole.contractReviewer,
+  'Contract Approver': UserRole.contractApprover,
+  'Contract Manager': UserRole.contractManager,
+  'Contract Negotiator': UserRole.contractNegotiator,
+  'Contract Signer': UserRole.contractSigner,
+  'Contract Observer': UserRole.contractObserver,
+  'Archive Manager': UserRole.archiveManager,
+  Auditor: UserRole.auditor,
+  'Sys. Administrator': UserRole.systemAdministrator,
+  'Compliance Officer': UserRole.complianceOfficer,
+  'Integration Manager': UserRole.integrationManager,
+  'Process Orchestrator': UserRole.processOrchestrator,
+  Validator: UserRole.validator,
 }
 
 const USER_ROLE_TO_ROLE_LABEL = Object.fromEntries(

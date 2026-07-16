@@ -20,7 +20,9 @@ const splitDids = (value: string) =>
     .split(',')
     .map((did) => did.trim())
     .filter(Boolean)
-const findingValue = (riskType: string) => riskType.toLowerCase().split('_').join('-')
+async function runMonitor() {
+  monitor.value = await monitorCompliance()
+}
 
 async function submit() {
   error.value = ''
@@ -36,19 +38,25 @@ async function submit() {
   }
 }
 
-onMounted(async () => {
-  monitor.value = await monitorCompliance()
-})
+onMounted(runMonitor)
 </script>
 
 <template>
   <main class="p-4">
     <h1 class="text-2xl font-bold">Non-Compliance Investigation</h1>
+    <button class="btn mt-3" data-test-id="compliance-monitor-run" @click="runMonitor">Run monitor</button>
     <section class="my-4" data-test-id="compliance-monitor-findings">
       <p v-if="!monitor">Monitoring compliance…</p>
       <p v-else-if="monitor.risks.length === 0">No current compliance risks.</p>
       <ul v-else>
-        <li v-for="risk in monitor.risks" :key="`${risk.did}:${risk.risk_type}`">{{ risk.did }}: {{ risk.detail }}</li>
+        <li
+          v-for="risk in monitor.risks"
+          :key="`${risk.did}:${risk.risk_type}`"
+          data-test-id="compliance-monitor-finding"
+          :data-test-key="risk.did"
+        >
+          {{ risk.did }}: {{ risk.detail }}
+        </li>
       </ul>
     </section>
     <div class="flex flex-col gap-3">
@@ -65,11 +73,7 @@ onMounted(async () => {
         placeholder="Affected template DIDs"
       />
       <select v-model="findingRefs" multiple class="select-bordered select" data-test-id="incident-finding-selection">
-        <option
-          v-for="risk in monitor?.risks ?? []"
-          :key="`${risk.did}:${risk.risk_type}`"
-          :value="findingValue(risk.risk_type)"
-        >
+        <option v-for="risk in monitor?.risks ?? []" :key="`${risk.did}:${risk.risk_type}`" :value="risk.did">
           {{ risk.detail }}
         </option>
       </select>
@@ -88,7 +92,12 @@ onMounted(async () => {
         Report incident
       </button>
     </div>
-    <div v-if="result" class="mt-4 alert alert-success" data-test-id="incident-result">
+    <div
+      v-if="result"
+      class="mt-4 alert alert-success"
+      data-test-id="incident-result"
+      :data-test-key="result.incident_id"
+    >
       <p>{{ result.reason }}</p>
       <p data-test-id="incident-affected-contract">{{ result.affected_contract_dids.join(', ') }}</p>
       <p data-test-id="incident-affected-template">{{ result.affected_template_dids.join(', ') }}</p>

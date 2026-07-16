@@ -76,7 +76,10 @@ func (h *Rejecter) Handle(ctx context.Context, cmd RejectCmd) error {
 		return fmt.Errorf("could not update approval task state: %w", err)
 	}
 
-	err = h.CTRepo.UpdateState(ctx, tx, cmd.DID, contracttemplatestate.Rejected.String())
+	// Rejection returns the template to the editable draft state. The rejected
+	// approval task and RejectEvent retain the decision and its reason; the
+	// lifecycle state must describe what the creator can do next.
+	err = h.CTRepo.UpdateState(ctx, tx, cmd.DID, contracttemplatestate.Draft.String())
 	if err != nil {
 		return fmt.Errorf("could not update current template state: %w", err)
 	}

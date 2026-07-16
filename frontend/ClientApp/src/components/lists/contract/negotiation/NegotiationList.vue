@@ -115,10 +115,18 @@ const handleShowBtn = (negotiation: ContractNegotiation) => {
 
 <template>
   <ul data-test-id="contract-negotiation-thread" class="list">
-    <li v-for="negotiation in sortedNegotiations" :key="negotiation.id" class="list-row px-0">
+    <li
+      v-for="negotiation in sortedNegotiations"
+      :key="negotiation.id"
+      :data-test-key="negotiation.id"
+      class="list-row px-0"
+    >
       <div class="card border-base-content/10 bg-base-100 shadow-sm card-border">
         <div class="card-body">
           <h2 class="card-title">Change proposal by: {{ negotiation.created_by }}</h2>
+          <p v-if="negotiation.change_request.comment" data-test-id="contract-negotiation-comment-entry">
+            {{ negotiation.change_request.comment }}
+          </p>
           <ul class="list">
             <li
               v-for="decision in sortedDecisions(negotiation.negotiation_decisions)"

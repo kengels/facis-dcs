@@ -50,7 +50,7 @@ const setSemanticConditionValue = computed<SemanticConditionValueSetter>(() => {
 
 const isAuditingAuthorized = computed(
   () =>
-    (['AUDITOR', 'COMPLIANCE_OFFICER', 'SYSTEM_ADMINISTRATOR'] as UserRole[]).some((role) =>
+    (['AUDITOR', 'COMPLIANCE_OFFICER', 'SYSTEM_ADMINISTRATOR', 'CONTRACT_APPROVER'] as UserRole[]).some((role) =>
       authStore.user?.roles?.includes(role),
     ) ?? false,
 )

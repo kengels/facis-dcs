@@ -85,6 +85,7 @@ export function clearOid4vpBrowserSession(): void {
   sessionStorage.removeItem(OID4VP_PRESENTATION_URL_KEY)
   sessionStorage.removeItem(OID4VP_AUTHORIZE_URL_KEY)
   sessionStorage.removeItem(OID4VP_AUTHORIZE_DONE_KEY)
+  sessionStorage.removeItem(OID4VP_LOGIN_CHALLENGE_KEY)
   sessionStorage.removeItem(OID4VP_PENDING_CHALLENGE_KEY)
   sessionStorage.removeItem('dcs_hydra_challenge_bound_state')
 }

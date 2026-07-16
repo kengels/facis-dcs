@@ -94,6 +94,10 @@ spec:
             - name: HYDRA_ADMIN_URL
               value: {{ include "digital-contracting-service.hydraAdminURL" . | quote }}
             {{- end }}
+            {{- if .Values.signing.eudiploWebhookSecret }}
+            - name: EUDIPLO_WEBHOOK_SECRET
+              value: {{ .Values.signing.eudiploWebhookSecret | quote }}
+            {{- end }}
             {{- if include "digital-contracting-service.fcKeycloakRealmURL" . }}
             - name: FC_KEYCLOAK_REALM_URL
               value: {{ include "digital-contracting-service.fcKeycloakRealmURL" . | quote }}

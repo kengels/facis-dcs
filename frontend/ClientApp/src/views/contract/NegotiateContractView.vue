@@ -28,6 +28,7 @@ import { ContractState } from '@/types/contract-state'
 import type { Contract, ContractChangeRequest } from '@/models/contract/contract'
 import type { ContractNegotiation } from '@/models/contract/contract-negotiation'
 import type { ContractData, SemanticConditionValue } from '@/models/contract-data'
+import type { ContractHistoryResponse } from '@/models/responses/contract-response'
 import type { SemanticConditionValueSetter } from '@/modules/contract-workflow-engine/models/contract-content-values-store'
 import type { UserRole } from '@/types/user-role'
 
@@ -49,6 +50,8 @@ const contractContentValuesStore = useContractContentValuesStore()
 const scrollStore = useScrollStore()
 
 const isSubmitting = ref(false)
+const negotiationComment = ref('')
+const negotiationRedline = ref('')
 
 const { isCreator, isReviewer } = useContractPermissions()
 
@@ -83,6 +86,7 @@ const verificationResult = computed(() => {
 
 const contract: Ref<Contract | null> = ref(null)
 const editedContract: Ref<Contract | null> = ref(null)
+const versionHistory: Ref<ContractHistoryResponse> = ref([])
 const compareChangesData: Ref<(Contract & { exp_notice_period_str: string; exp_policy_str: string }) | null> = ref(null)
 
 const hasChangeRequest = computed(() => {
@@ -91,7 +95,9 @@ const hasChangeRequest = computed(() => {
     changedDescription.value ||
     changedContractData.value ||
     changeExpNoticePeriod.value ||
-    changeExpPolicy.value
+    changeExpPolicy.value ||
+    negotiationComment.value.trim().length > 0 ||
+    negotiationRedline.value.trim().length > 0
   )
 })
 
@@ -141,7 +147,12 @@ const loadContract = async () => {
   try {
     const id = route.params.did
     if (id && !Array.isArray(id)) {
-      contract.value = await contractWorkflowService.retrieveById({ did: id })
+      const [loadedContract, loadedHistory] = await Promise.all([
+        contractWorkflowService.retrieveById({ did: id }),
+        contractWorkflowService.retrieveHistoryByDid({ did: id }),
+      ])
+      contract.value = loadedContract
+      versionHistory.value = loadedHistory
       editedContract.value = !!contract.value ? { ...contract.value } : null
       applyContractDataToDraft(contract.value?.contract_data)
     }
@@ -196,6 +207,12 @@ const negotiateContractChange = async () => {
     if (changedContractData.value) {
       changeRequest.contract_data = buildCurrentContractData()
     }
+    if (negotiationComment.value.trim()) {
+      changeRequest.comment = negotiationComment.value.trim()
+    }
+    if (negotiationRedline.value.trim()) {
+      changeRequest.redline = negotiationRedline.value.trim()
+    }
     const response = await contractWorkflowService.negotiate({
       did: contract.value?.did,
       updated_at: contract.value?.updated_at,
@@ -203,6 +220,8 @@ const negotiateContractChange = async () => {
       change_request: changeRequest,
     })
     if (response.did) {
+      negotiationComment.value = ''
+      negotiationRedline.value = ''
       await loadContract()
     }
   } catch (err) {
@@ -463,7 +482,6 @@ const exportPDF = async () => {
               <div v-show="activeTab === 'diff'">
                 <ContractHistoryDiffView
                   v-if="contract"
-                  data-test-id="contract-version-diff"
                   :contract-did="contract.did"
                   :contract-state="contract.state"
                   :current-contract-data="currentContractData"
@@ -489,11 +507,47 @@ const exportPDF = async () => {
         <div class="mx-auto max-w-4xl p-6">
           <div class="text-lg">Active negotiations</div>
           <NegotiationList :contract="contract" @selected-negotiation="handleSelectedNegotiation" />
+          <div data-test-id="contract-version-diff" class="mt-4 space-y-2">
+            <article v-for="negotiation in contract.negotiations" :key="negotiation.id" :data-test-key="negotiation.id">
+              <p v-if="negotiation.change_request.redline">{{ negotiation.change_request.redline }}</p>
+            </article>
+          </div>
+          <section data-test-id="contract-version-history" class="card mt-4 border border-base-300 bg-base-100">
+            <div class="card-body gap-2">
+              <h2 class="card-title text-sm">Version history</h2>
+              <ol v-if="versionHistory.length" class="space-y-2">
+                <li
+                  v-for="historyItem in versionHistory"
+                  :key="`${historyItem.did}-${historyItem.contract_version}-${historyItem.updated_at}`"
+                  :data-test-key="historyItem.contract_version"
+                  class="text-sm"
+                >
+                  Version {{ historyItem.contract_version }} · {{ historyItem.state }} · {{ historyItem.updated_at }} ·
+                  {{ historyItem.created_by }}
+                </li>
+              </ol>
+              <p v-else class="text-sm text-base-content/60">No persisted versions.</p>
+            </div>
+          </section>
         </div>
       </template>
     </div>
     <div class="sticky bottom-0 shrink-0 border-t border-base-300 bg-base-100">
       <div class="mx-auto flex max-w-4xl flex-col gap-3 px-6 py-3 md:flex-row">
+        <textarea
+          v-if="contract?.state === ContractState.negotiation"
+          v-model="negotiationComment"
+          data-test-id="contract-negotiation-comment"
+          class="textarea-bordered textarea"
+          placeholder="Negotiation comment"
+        ></textarea>
+        <textarea
+          v-if="contract?.state === ContractState.negotiation"
+          v-model="negotiationRedline"
+          data-test-id="contract-negotiation-redline"
+          class="textarea-bordered textarea"
+          placeholder="Proposed replacement text"
+        ></textarea>
         <button class="btn btn-outline md:w-32" @click="$router.back()">Back</button>
         <button class="btn btn-outline md:w-32" @click="exportPDF">Export PDF</button>
         <button
@@ -508,6 +562,7 @@ const exportPDF = async () => {
         </button>
         <button
           v-if="contract?.state === ContractState.negotiation"
+          data-test-id="contract-submit-review"
           class="btn flex-1 btn-primary"
           :disabled="
             (!isCreator && !isReviewer) || isSubmitting || hasChangeRequest || hasOpenDecisions || !!compareChangesData

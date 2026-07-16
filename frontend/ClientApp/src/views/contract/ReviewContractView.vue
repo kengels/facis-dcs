@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, type Ref, ref, useTemplateRef, watch 
 import { useRoute } from 'vue-router'
 import ConfirmationModal from '@/components/ConfirmationModal.vue'
 import ContractManagerActions from '@/components/contract/ContractManagerActions.vue'
+import ContractAuditList from '@/components/lists/contract/ContractAuditList.vue'
 import AuditView from '@/modules/contract-workflow-engine/components/AuditView.vue'
 import ContractDetailsEditor from '@/modules/contract-workflow-engine/components/ContractDetailsEditor.vue'
 import { useContractDataPreprocess } from '@/modules/contract-workflow-engine/composables/useContractDataPreprocess'
@@ -21,6 +22,7 @@ import { useErrorStore } from '@/stores/error-store'
 import { useNavStore } from '@/stores/nav-store'
 import { ContractState } from '@/types/contract-state'
 import type { Contract } from '@/models/contract/contract'
+import type { ContractAuditResponse } from '@/models/responses/contract-response'
 import type { SemanticConditionValueSetter } from '@/modules/contract-workflow-engine/models/contract-content-values-store'
 import type { UserRole } from '@/types/user-role'
 
@@ -51,7 +53,7 @@ const setSemanticConditionValue = computed<SemanticConditionValueSetter>(() => {
 
 const isAuditingAuthorized = computed(
   () =>
-    (['AUDITOR', 'COMPLIANCE_OFFICER', 'SYSTEM_ADMINISTRATOR'] as UserRole[]).some((role) =>
+    (['AUDITOR', 'COMPLIANCE_OFFICER', 'SYSTEM_ADMINISTRATOR', 'CONTRACT_REVIEWER'] as UserRole[]).some((role) =>
       authStore.user?.roles?.includes(role),
     ) ?? false,
 )
@@ -74,6 +76,7 @@ const verificationResult = computed(() => {
 })
 
 const contract: Ref<Contract | null> = ref(null)
+const reviewAudits: Ref<ContractAuditResponse> = ref([])
 
 watch(
   () => !!route.params.did,
@@ -82,7 +85,12 @@ watch(
       try {
         const id = route.params.did
         if (id && !Array.isArray(id)) {
-          contract.value = await contractWorkflowService.retrieveById({ did: id })
+          const [loadedContract, loadedAudits] = await Promise.all([
+            contractWorkflowService.retrieveById({ did: id }),
+            contractWorkflowService.audit({ did: id }),
+          ])
+          contract.value = loadedContract
+          reviewAudits.value = loadedAudits
           applyContractDataToDraft(contract.value?.contract_data)
         }
       } catch (err: unknown) {
@@ -256,6 +264,12 @@ const exportPDF = async () => {
             <div class="grid grid-cols-1 gap-4">
               <div v-show="activeTab === 'details'">
                 <ContractDetailsEditor :contract="contract" disabled />
+                <section class="card mt-4 border border-base-300 bg-base-100">
+                  <div class="card-body gap-2">
+                    <h2 class="card-title text-sm">Review history</h2>
+                    <ContractAuditList :audits="reviewAudits" review-only />
+                  </div>
+                </section>
               </div>
 
               <div v-show="activeTab === 'content'">
@@ -281,7 +295,7 @@ const exportPDF = async () => {
                   <div class="card border border-base-300 bg-base-100 shadow-sm">
                     <div class="card-body">
                       <h2 class="card-title text-sm">Audit History</h2>
-                      <AuditView />
+                      <AuditView eager :show-review-history="false" />
                     </div>
                   </div>
                 </div>

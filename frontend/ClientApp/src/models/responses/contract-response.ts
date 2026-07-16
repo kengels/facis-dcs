@@ -104,10 +104,20 @@ export interface ContractRejectResponse {
 
 export interface ContractStoreResponse {
   did: string
+  evidence_type: string
+  reference: string
+  recorded_at: string
 }
 
 export interface ContractTerminateResponse {
   did: string
+  state: ContractState
+}
+
+export interface ContractRenewResponse {
+  did: string
+  renews_did: string
+  renews_contract_version: number
 }
 
 export interface ContractAuditResponseItem {

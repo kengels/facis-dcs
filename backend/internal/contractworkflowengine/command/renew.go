@@ -170,6 +170,13 @@ func (h *Renewer) Handle(ctx context.Context, cmd RenewCmd) (*RenewResult, error
 	if err := h.CRepo.Create(ctx, tx, data); err != nil {
 		return nil, fmt.Errorf("could not create renewal contract: %w", err)
 	}
+	if err := h.CRepo.CreateRenewalRelation(ctx, tx, db.ContractRenewalRelation{
+		RenewalDID:              cmd.DID,
+		OriginalDID:             cmd.OriginalDID,
+		OriginalContractVersion: original.ContractVersion,
+	}); err != nil {
+		return nil, fmt.Errorf("could not persist renewal relation: %w", err)
+	}
 
 	// Term dates/policy are not accepted by Create (mirrors the plain
 	// create endpoint, which also has no date fields); carry them over — or

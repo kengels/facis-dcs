@@ -30,10 +30,7 @@ const ceremonyAudience = pidverify.Audience
 // WebhookSecret returns the shared secret that authenticates the EUDIPLO
 // OID4VP webhook (NFR-SEC-18). It is read from EUDIPLO_WEBHOOK_SECRET.
 func WebhookSecret() string {
-	if v := strings.TrimSpace(os.Getenv("EUDIPLO_WEBHOOK_SECRET")); v != "" {
-		return v
-	}
-	return "bdd-eudiplo-webhook-secret"
+	return strings.TrimSpace(os.Getenv("EUDIPLO_WEBHOOK_SECRET"))
 }
 
 // StartCeremonyCmd carries the inputs for starting a signing ceremony.
@@ -63,7 +60,7 @@ func (h *StartCeremonyHandler) Handle(ctx context.Context, cmd StartCeremonyCmd)
 	now := time.Now().UTC()
 	id := uuid.NewString()
 	nonce := uuid.NewString()
-	walletURI := fmt.Sprintf("openid4vp://?client_id=%s&request_uri=%s/signature/request/%s&nonce=%s",
+	walletURI := fmt.Sprintf("openid4vp://?client_id=%s&request_uri=%s/signature/presentation/request/%s&request_uri_method=get&nonce=%s",
 		ceremonyAudience, strings.TrimRight(cmd.BaseURL, "/"), id, nonce)
 	expiresAt := now.Add(ceremonyTTL)
 
@@ -112,17 +109,34 @@ func (h *WebhookHandler) Handle(ctx context.Context, cmd WebhookCmd) (*db.Signat
 	if strings.TrimSpace(cmd.Secret) == "" || cmd.Secret != WebhookSecret() {
 		return nil, ErrWebhookUnauthorized
 	}
+	return verifyCeremonyPresentation(ctx, h.DB, h.CeremonyRepo, cmd.CeremonyID, cmd.VpToken, cmd.PidClaims, false)
+}
+
+// PresentationHandler accepts the cryptographically bound direct-post wallet
+// response. Unlike the EUDIPLO webhook it does not use a shared secret: the
+// unguessable ceremony state and the PID holder-bound presentation are the
+// protocol credentials.
+type PresentationHandler struct {
+	DB           *sqlx.DB
+	CeremonyRepo db.CeremonyRepo
+}
+
+func (h *PresentationHandler) Handle(ctx context.Context, ceremonyID, vpToken string) (*db.SignatureCeremony, error) {
+	return verifyCeremonyPresentation(ctx, h.DB, h.CeremonyRepo, ceremonyID, vpToken, nil, true)
+}
+
+func verifyCeremonyPresentation(ctx context.Context, database *sqlx.DB, ceremonyRepo db.CeremonyRepo, ceremonyID, vpToken string, pidClaims any, enforceNonce bool) (*db.SignatureCeremony, error) {
 
 	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
 	defer cancel()
 
-	tx, err := h.DB.BeginTxx(ctx, nil)
+	tx, err := database.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not start transaction: %w", err)
 	}
 	defer rollback(tx)
 
-	ceremony, err := h.CeremonyRepo.GetCeremonyByID(ctx, tx, cmd.CeremonyID)
+	ceremony, err := ceremonyRepo.GetCeremonyByID(ctx, tx, ceremonyID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,19 +144,24 @@ func (h *WebhookHandler) Handle(ctx context.Context, cmd WebhookCmd) (*db.Signat
 		return nil, ErrCeremonyNotFound
 	}
 
-	signerDID, sdHash, err := pidverify.Verify(cmd.VpToken)
+	var signerDID, sdHash string
+	if enforceNonce {
+		signerDID, sdHash, err = pidverify.VerifyForNonce(vpToken, ceremony.Nonce)
+	} else {
+		signerDID, sdHash, err = pidverify.Verify(vpToken)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("pid presentation verification failed: %w", err)
 	}
 
 	var pidBytes []byte
-	if cmd.PidClaims != nil {
-		if b, mErr := json.Marshal(cmd.PidClaims); mErr == nil {
+	if pidClaims != nil {
+		if b, mErr := json.Marshal(pidClaims); mErr == nil {
 			pidBytes = b
 		}
 	}
 
-	if err := h.CeremonyRepo.MarkCeremonyVerified(ctx, tx, cmd.CeremonyID, signerDID, cmd.VpToken, pidBytes, sdHash); err != nil {
+	if err := ceremonyRepo.MarkCeremonyVerified(ctx, tx, ceremonyID, signerDID, vpToken, pidBytes, sdHash); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {

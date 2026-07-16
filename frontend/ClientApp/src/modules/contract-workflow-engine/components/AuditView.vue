@@ -8,6 +8,10 @@ import type { ContractAuditResponse } from '@/models/responses/contract-response
 
 const route = useRoute()
 const editorStore = useContractEditorUiStore()
+const props = withDefaults(defineProps<{ eager?: boolean; showReviewHistory?: boolean }>(), {
+  eager: false,
+  showReviewHistory: true,
+})
 const data: Ref<ContractAuditResponse> = ref([])
 
 const isLoading = ref(false)
@@ -26,7 +30,7 @@ const loadAudit = async () => {
 }
 
 watch(
-  () => editorStore.activeTab === 'audit',
+  () => props.eager || editorStore.activeTab === 'audit',
   async (value) => {
     if (value) await loadAudit()
     else data.value = []
@@ -38,5 +42,5 @@ watch(
 <template>
   <div v-if="isLoading" class="loading loading-sm loading-spinner"></div>
   <div v-else-if="data.length < 1">No audit data</div>
-  <ContractAuditList v-else :audits="data" />
+  <ContractAuditList v-else :audits="data" :show-review-history="showReviewHistory" />
 </template>

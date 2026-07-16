@@ -16,6 +16,7 @@ import (
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatetype"
 	"digital-contracting-service/internal/templaterepository/db"
+	"digital-contracting-service/internal/templaterepository/dependency"
 	templateevents "digital-contracting-service/internal/templaterepository/event"
 
 	"github.com/jmoiron/sqlx"
@@ -94,6 +95,9 @@ func (h *Updater) Handle(ctx context.Context, cmd UpdateCmd) error {
 
 	} else {
 		return errors.New("current contract template state is invalid")
+	}
+	if err := dependency.ValidateTemplateData(ctx, tx, h.CTRepo, cmd.DID, cmd.TemplateData); err != nil {
+		return fmt.Errorf("template dependency validation failed: %w", err)
 	}
 
 	err = h.RTRepo.ReopenTasks(ctx, tx, cmd.DID)

@@ -249,8 +249,24 @@ type ContractPDFState struct {
 	PayloadHash     string `db:"pdf_payload_hash"`
 }
 
+type ContractRenewalRelation struct {
+	RenewalDID              string    `db:"renewal_did"`
+	OriginalDID             string    `db:"original_did"`
+	OriginalContractVersion int       `db:"original_contract_version"`
+	CreatedAt               time.Time `db:"created_at"`
+}
+
+type ArchiveDashboardAction struct {
+	ID         int64     `db:"id"`
+	DID        string    `db:"did"`
+	EventType  string    `db:"event_type"`
+	OccurredAt time.Time `db:"created_at"`
+}
+
 type ContractRepo interface {
 	Create(ctx context.Context, tx *sqlx.Tx, data Contract) error
+	CreateRenewalRelation(ctx context.Context, tx *sqlx.Tx, relation ContractRenewalRelation) error
+	ReadRenewalRelations(ctx context.Context, tx *sqlx.Tx, originalDID string) ([]ContractRenewalRelation, error)
 	RemoteCreate(ctx context.Context, tx *sqlx.Tx, data Contract) error
 	CreateHistoryEntryForDID(ctx context.Context, tx *sqlx.Tx, did string) error
 	ReadHistoryByDID(ctx context.Context, tx *sqlx.Tx, did string) ([]ContractHistory, error)
@@ -259,6 +275,7 @@ type ContractRepo interface {
 	ReadExpiredContracts(ctx context.Context, tx *sqlx.Tx) ([]ContractMetadata, error)
 	StoreArchiveEntry(ctx context.Context, tx *sqlx.Tx, data ContractArchiveEntry) error
 	ReadArchiveEntries(ctx context.Context, tx *sqlx.Tx) ([]ContractArchiveEntry, error)
+	ReadArchiveRecentActions(ctx context.Context, tx *sqlx.Tx, limit int) ([]ArchiveDashboardAction, error)
 	// MarkArchiveEntryDeleted soft-deletes every not-yet-deleted archive
 	// entry for did (DCS-FR-CSA-17): sets deleted_at/deleted_by/
 	// deletion_reason rather than removing the row, so the evidence stays

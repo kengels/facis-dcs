@@ -472,6 +472,28 @@ def step_restart_orce(context):
         [kubectl, "rollout", "status", f"deployment/{deployment}", "-n", namespace, "--timeout=120s"], check=True
     )
 
+    # kubectl port-forward selects one of the Service's backing pods and exits
+    # when that pod is replaced. The BDD runner supervises and restarts the
+    # forward, but rollout completion can briefly precede that reconnection.
+    reconnect_timeout = float(os.getenv("BDD_ORCE_RECONNECT_TIMEOUT_SECONDS", "30"))
+    deadline = time.monotonic() + reconnect_timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            response = requests.get(
+                context.orce_audit_log_url,
+                headers=_auth_header(context),
+                timeout=min(context.http_timeout_seconds, 2),
+            )
+            if response.status_code in (200, 404):
+                return
+            last_error = AssertionError(f"unexpected HTTP {response.status_code}: {response.text}")
+        except requests.RequestException as error:
+            last_error = error
+        time.sleep(0.5)
+
+    raise AssertionError(f"ORCE port-forward did not recover within {reconnect_timeout:g}s: {last_error}")
+
 
 @then("the second ORCE receipt references the first receipt hash")
 def step_receipt_chained(context):

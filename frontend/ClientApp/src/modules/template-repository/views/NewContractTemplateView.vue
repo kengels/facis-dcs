@@ -30,45 +30,42 @@ function onTemplateTypeChosen(value: typeof templateType.value) {
   hasChosenType.value = true
 }
 
+const loadAuthoritativeTemplate = async (did: string) => {
+  const template = await contractTemplateService.retrieveById({ did })
+  if (!template) {
+    throw new Error(`Template ${did} could not be reloaded after persistence`)
+  }
+  const uneditableStates = [TemplateState.deprecated, TemplateState.registered, TemplateState.published].map((state) =>
+    state.toLowerCase(),
+  )
+  templateEditorUiStore.setTemplateEditable(!uneditableStates.includes(template.state.toLowerCase()))
+  draftStore.loadDocument(template.template_data, {
+    did: template.did,
+    name: template.name ?? '',
+    description: template.description ?? '',
+    templateType: template.template_type,
+    state: template.state,
+    version: template.version ?? null,
+    document_number: template.document_number ?? null,
+    updated_at: template.updated_at ?? null,
+    responsible: template.responsible ?? null,
+  })
+  return template
+}
+
 watch(
-  isEditMode,
-  (isEdit) => {
+  () => route.params.did,
+  (routeDid) => {
+    const isEdit = !!routeDid
     templateEditorUiStore.reset()
     if (isEdit) {
       hasChosenType.value = true
-      // load template data into draftStore
-      const did = Array.isArray(route.params.did) ? route.params.did[0] : route.params.did
+      const did = Array.isArray(routeDid) ? routeDid[0] : routeDid
       if (!did) return
-      contractTemplateService
-        .retrieveById({ did })
-        .then((template) => {
-          if (!template) {
-            draftStore.reset()
-            return
-          }
-          const uneditableStates = [
-            TemplateState.deprecated,
-            TemplateState.registered,
-            TemplateState.published,
-            TemplateState.registered,
-          ].map((s) => s.toLowerCase())
-          templateEditorUiStore.setTemplateEditable(!uneditableStates.includes(template.state.toLowerCase()))
-
-          draftStore.loadDocument(template.template_data, {
-            did: template.did,
-            name: template.name ?? '',
-            description: template.description ?? '',
-            templateType: template.template_type,
-            state: template.state,
-            version: template.version ?? null,
-            document_number: template.document_number ?? null,
-            updated_at: template.updated_at ?? null,
-            responsible: template.responsible ?? null,
-          })
-        })
-        .catch((error: unknown) => {
-          console.error('Failed to load template for editing', error)
-        })
+      void loadAuthoritativeTemplate(did).catch((error: unknown) => {
+        console.error('Failed to load template for editing', error)
+        draftStore.reset()
+      })
     } else {
       draftStore.reset()
       templateEditorUiStore.setTemplateEditable(true)
@@ -105,6 +102,13 @@ const submit = async () => {
         }
       }
     }
+    if (!savedDid) {
+      throw new Error('Template persistence returned no DID')
+    }
+    // Update responses intentionally remain small. Reload the authoritative
+    // read model so the next lifecycle command uses the committed updated_at
+    // optimistic-concurrency token and version.
+    await loadAuthoritativeTemplate(savedDid)
     await router.push({ name: ROUTES.TEMPLATES.LIST, query: { saved_did: savedDid } })
   } catch (error) {
     console.error('Submission failed', error)

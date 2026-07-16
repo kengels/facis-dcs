@@ -13,12 +13,12 @@ import (
 // an entry breaks the chain and is therefore detectable. See
 // base/event.OutboxProcessor, which builds and anchors these entries.
 type AuditLogEntry struct {
-	ID               int64           `json:"id"`
-	Component        string          `json:"component"`
-	EventType        string          `json:"event_type"`
-	EventData        json.RawMessage `json:"event_data"`
-	DID              *string         `json:"did"`
-	CreatedAt        time.Time       `json:"created_at"`
-	ResLogPredCID    *string         `json:"res_log_pred_cid"`
-	GlobalLogPredCID *string         `json:"global_log_pred_cid"`
+	ID               int64           `db:"id" json:"id"`
+	Component        string          `db:"component" json:"component"`
+	EventType        string          `db:"event_type" json:"event_type"`
+	EventData        json.RawMessage `db:"event_data" json:"event_data"`
+	DID              *string         `db:"did" json:"did"`
+	CreatedAt        time.Time       `db:"created_at" json:"created_at"`
+	ResLogPredCID    *string         `db:"res_log_pred_cid" json:"res_log_pred_cid"`
+	GlobalLogPredCID *string         `db:"global_log_pred_cid" json:"global_log_pred_cid"`
 }

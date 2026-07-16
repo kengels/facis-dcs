@@ -116,6 +116,9 @@ func (h *Validator) validateWithDSS(ctx context.Context, tx *sqlx.Tx, did string
 	if err != nil {
 		return nil, fmt.Errorf("EU DSS validation of %s failed: %w", did, err)
 	}
+	if report.Passed() {
+		return nil, nil
+	}
 	finding := fmt.Sprintf("EU DSS validation report: indication=%s", report.Indication)
 	if report.SubIndication != "" {
 		finding += fmt.Sprintf(" (subIndication=%s)", report.SubIndication)
@@ -185,7 +188,7 @@ func (h *Validator) crossCheckEmbeddedPID(ctx context.Context, tx *sqlx.Tx, did 
 		}
 	}
 
-	return []string{"Embedded PID presentation re-verified and cross-checked against the signature record"}
+	return nil
 }
 
 // signingSummaryPIDFields extracts the verbatim PID presentation and credential

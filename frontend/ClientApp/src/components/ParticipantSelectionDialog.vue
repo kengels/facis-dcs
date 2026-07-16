@@ -140,7 +140,7 @@ function collectAssignees(): ParticipantSelection {
 
 function validateBeforeSubmit(): boolean {
   clearErrors()
-  const { reviewers: finalReviewers, approvers: finalApprovers, negotiators: finalNegotiators } = collectAssignees()
+  const { reviewers: finalReviewers, approvers: finalApprovers } = collectAssignees()
   let valid = true
 
   if (finalReviewers.length === 0) {
@@ -151,11 +151,6 @@ function validateBeforeSubmit(): boolean {
     approverError.value = 'Add at least one approver.'
     valid = false
   }
-  if (finalNegotiators.length === 0) {
-    negotiatorError.value = 'Add at least one negotiator.'
-    valid = false
-  }
-
   return valid
 }
 
@@ -203,6 +198,7 @@ function onModalClose() {
             <div class="flex flex-col gap-2">
               <input
                 v-model="reviewerDraft"
+                data-test-id="contract-participants-reviewer"
                 type="text"
                 class="input-bordered input input-sm w-full font-mono text-xs"
                 placeholder="did:web:..."
@@ -236,6 +232,7 @@ function onModalClose() {
             <div class="flex flex-col gap-2">
               <input
                 v-model="approverDraft"
+                data-test-id="contract-participants-approver"
                 type="text"
                 class="input-bordered input input-sm w-full font-mono text-xs"
                 placeholder="did:web:..."
@@ -269,6 +266,7 @@ function onModalClose() {
             <div class="flex flex-col gap-2">
               <input
                 v-model="negotiatorDraft"
+                data-test-id="contract-participants-negotiator"
                 type="text"
                 class="input-bordered input input-sm w-full font-mono text-xs"
                 placeholder="did:web:..."
@@ -283,7 +281,14 @@ function onModalClose() {
 
         <div class="modal-action mt-2">
           <button type="button" class="btn btn-outline" @click="onModalClose">Cancel</button>
-          <button type="button" class="btn btn-primary" @click="onModalSubmit">Apply</button>
+          <button
+            type="button"
+            data-test-id="contract-participants-submit"
+            class="btn btn-primary"
+            @click="onModalSubmit"
+          >
+            Apply
+          </button>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop">

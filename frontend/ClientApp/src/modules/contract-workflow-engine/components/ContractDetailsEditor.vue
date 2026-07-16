@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { toProperCase } from '@/utils/string'
 import type { Contract } from '@/models/contract/contract'
 
 defineProps<{
@@ -34,7 +35,9 @@ const originalContract = ref(Object.assign({}, contract.value))
     <div class="card-body gap-5">
       <h2 class="card-title justify-between text-sm">
         <div class="flex gap-2">Contract Details</div>
-        <div data-test-id="contract-lifecycle-status" class="badge badge-sm badge-secondary">{{ contract.state }}</div>
+        <div data-test-id="contract-lifecycle-status" class="badge badge-sm badge-secondary">
+          {{ toProperCase(contract.state) }}
+        </div>
       </h2>
 
       <fieldset class="fieldset border-none p-0">
@@ -93,7 +96,7 @@ const originalContract = ref(Object.assign({}, contract.value))
         />
       </fieldset>
 
-      <fieldset data-test-id="contract-dashboard-deadline" class="fieldset border-none p-0">
+      <fieldset data-test-id="contract-details-deadline" class="fieldset border-none p-0">
         <legend class="fieldset-legend">Expiration Notice Period (in days)</legend>
         <input
           v-if="!inserted?.exp_notice_period"
@@ -128,7 +131,7 @@ const originalContract = ref(Object.assign({}, contract.value))
           disabled
         />
       </fieldset>
-      <fieldset data-test-id="contract-dashboard-responsibility" class="fieldset border-none p-0">
+      <fieldset data-test-id="contract-details-responsibility" class="fieldset border-none p-0">
         <div class="collapse-arrow collapse [&>input~.collapse-title::after]:scale-75">
           <input type="checkbox" name="responsibles" />
           <legend class="collapse-title fieldset-legend pl-0 font-semibold">Responsible Participants</legend>

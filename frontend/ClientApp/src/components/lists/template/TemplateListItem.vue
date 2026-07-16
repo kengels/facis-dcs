@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import TemplateManagerActions from '@/components/template/TemplateManagerActions.vue'
 import { useTemplatePermissions } from '@/modules/template-repository/composables/useTemplatePermissions'
 import { ROUTES } from '@/router/router'
 import { TemplateState } from '@/types/contract-template-state'
@@ -8,6 +9,10 @@ import type { PartialContractTemplate } from '@/models/contract-template'
 
 const props = defineProps<{
   template: PartialContractTemplate
+}>()
+
+const emit = defineEmits<{
+  lifecycleChanged: []
 }>()
 
 const { isCreator, isReviewer, isApprover, isManager } = useTemplatePermissions()
@@ -104,6 +109,11 @@ function getTemplateLink(template: PartialContractTemplate): string {
             >
               Edit
             </RouterLink>
+            <TemplateManagerActions
+              :template="template"
+              class="btn gap-2 btn-sm btn-primary"
+              @lifecycle-changed="emit('lifecycleChanged')"
+            />
           </div>
         </div>
       </div>

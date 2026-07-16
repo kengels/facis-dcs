@@ -63,19 +63,20 @@ type Contract struct {
 }
 
 type ContractMetadata struct {
-	DID             string       `db:"did"`
-	ContractVersion int          `db:"contract_version"`
-	State           string       `db:"state"`
-	CreatedBy       string       `db:"created_by"`
-	CreatedAt       time.Time    `db:"created_at"`
-	UpdatedAt       time.Time    `db:"updated_at"`
-	StartDate       *time.Time   `db:"start_date"`
-	ExpDate         *time.Time   `db:"exp_date"`
-	ExpPolicy       *string      `db:"exp_policy"`
-	ExpNoticePeriod *int         `db:"exp_notice_period"`
-	Name            *string      `db:"name"`
-	Responsible     *Responsible `db:"responsible"`
-	Description     *string      `db:"description"`
+	DID             string         `db:"did"`
+	ContractVersion int            `db:"contract_version"`
+	State           string         `db:"state"`
+	CreatedBy       string         `db:"created_by"`
+	CreatedAt       time.Time      `db:"created_at"`
+	UpdatedAt       time.Time      `db:"updated_at"`
+	StartDate       *time.Time     `db:"start_date"`
+	ExpDate         *time.Time     `db:"exp_date"`
+	ExpPolicy       *string        `db:"exp_policy"`
+	ExpNoticePeriod *int           `db:"exp_notice_period"`
+	Name            *string        `db:"name"`
+	Responsible     *Responsible   `db:"responsible"`
+	Description     *string        `db:"description"`
+	ContractData    *datatype.JSON `db:"contract_data"`
 }
 
 type ContractProcessData struct {
@@ -106,6 +107,7 @@ type ContractSignature struct {
 	Status         string     `db:"status"`
 	SignedAt       *time.Time `db:"signed_at"`
 	RevokedAt      *time.Time `db:"revoked_at"`
+	RevokedReason  *string    `db:"revoked_reason"`
 	CertRevokedAt  *time.Time `db:"cert_revoked_at"`
 	IpfsCID        *string    `db:"ipfs_cid"`
 	SignatureBytes []byte     `db:"signature_bytes"`
@@ -127,21 +129,13 @@ type ContractSignatureEnvelope struct {
 	KeyVersion     int     `db:"key_version"`
 }
 
-type ContractSigningTask struct {
-	ContractDID     string    `db:"contract_did"`
-	ContractVersion int       `db:"contract_version"`
-	State           string    `db:"state"`
-	SignerDID       string    `db:"signer_did"`
-	FieldName       string    `db:"field_name"`
-	CreatedAt       time.Time `db:"created_at"`
-}
-
 type SignatureRecord struct {
 	SignerDID      string     `db:"signer_did"`
 	CredentialType string     `db:"credential_type"`
 	Status         string     `db:"status"`
 	SignedAt       *time.Time `db:"signed_at"`
 	RevokedAt      *time.Time `db:"revoked_at"`
+	RevokedReason  *string    `db:"revoked_reason"`
 	CertRevokedAt  *time.Time `db:"cert_revoked_at"`
 	// FieldName is the declared signature field this signature covers
 	// (DCS-FR-SM-07/-17); nil for signatures predating multi-signer support.
@@ -162,10 +156,9 @@ type ContractRepo interface {
 	// (any post-signature attachment mutation is flagged as an illegal
 	// modification by standards-compliant PAdES validators).
 	SetSignedPDF(ctx context.Context, tx *sqlx.Tx, did, ipfsCID, rendererVersion, c2paState, payloadHash string) error
-	RevokeSignature(ctx context.Context, tx *sqlx.Tx, did string, signerDID string) error
+	RevokeSignature(ctx context.Context, tx *sqlx.Tx, did string, signerDID string, reason string) error
 	ActiveKeyVersion(ctx context.Context, tx *sqlx.Tx, label string) (int, error)
 	ReadLatestEnvelopeByContractDID(ctx context.Context, tx *sqlx.Tx, did string) (*ContractSignatureEnvelope, error)
-	ReadAllSigningTasks(ctx context.Context, tx *sqlx.Tx) ([]ContractSigningTask, error)
 	CountSignatureForContractDID(ctx context.Context, tx *sqlx.Tx, did string) (int, error)
 	FetchContractPDFBytes(ctx context.Context, tx *sqlx.Tx, did string) ([]byte, error)
 	CollectValidationFindings(ctx context.Context, tx *sqlx.Tx, did string) ([]string, error)

@@ -60,7 +60,7 @@ const (
 	// C2PA lifecycle banner "suspended").
 	EventRevoke Event = "REVOKE"
 
-	// EventUpdate: editing draft contract data before submission.
+	// EventUpdate: editing draft or rejected contract data before submission.
 	EventUpdate Event = "UPDATE"
 )
 
@@ -79,21 +79,20 @@ var ErrInvalidTransition = errors.New("invalid contract state transition")
 var Transitions = map[ContractState]map[Event][]ContractState{
 	Draft: {
 		EventOffer:     {Offered},
-		EventSubmit:    {Negotiation},
+		EventSubmit:    {Negotiation, Submitted},
 		EventUpdate:    {Draft},
 		EventTerminate: {Terminated},
 	},
 	Rejected: {
 		EventSubmit:    {Negotiation},
+		EventUpdate:    {Rejected},
 		EventTerminate: {Terminated},
 	},
 	Offered: {
-		// Offered -> Negotiation: the creator submits the offered contract to
-		// start the negotiation round (mirrors Draft -> Negotiation; see
-		// command/submit.go's Offered branch). Without this edge the
-		// DRAFT -> OFFERED -> NEGOTIATION -> SUBMITTED -> ... sequence is
-		// unreachable once a contract has been offered.
-		EventSubmit:    {Negotiation},
+		// An offered contract follows the same optional-negotiation decision as
+		// a draft: it either starts a negotiation round or proceeds directly to
+		// review in Submitted.
+		EventSubmit:    {Negotiation, Submitted},
 		EventWithdraw:  {Withdrawn},
 		EventTerminate: {Terminated},
 	},

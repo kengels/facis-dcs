@@ -54,9 +54,18 @@ const { activeTab } = storeToRefs(contractEditorUiStore)
 const did = ref<string | null>(null)
 const isEditMode = computed(() => !!route.params.did || !!did.value)
 const isSubmitting = ref(false)
-const selectedTemplate: Ref<PartialContractTemplate | null> = ref(null)
+const selectedTemplateDid = ref<string | null>(null)
+const selectedTemplate = computed<PartialContractTemplate | null>(
+  () => approvedTemplates.value.find((template) => template.did === selectedTemplateDid.value) ?? null,
+)
 const verificationResult: Ref<VerificationResult | null> = ref(null)
 const selectedParentContractDid = ref<string | null>(null)
+const initialName = ref('')
+const initialParty = ref('')
+const initialAsset = ref('')
+const initialPolicy = ref('')
+const initialEvidence = ref('')
+const createdDraft = ref<Contract | null>(null)
 
 const contract: Ref<Contract | null> = ref(null)
 
@@ -144,36 +153,33 @@ function verifySemanticValues(): boolean {
   return false
 }
 
-const createContract = async ({ reviewers, approvers, negotiators }: ParticipantSelection) => {
+const createPopulatedDraft = async () => {
+  if (!selectedTemplate.value || isSubmitting.value) return
   isSubmitting.value = true
   try {
-    if (selectedTemplate.value) {
-      const response = await contractWorkflowService.create({
-        template_did: selectedTemplate.value.did,
-        reviewers,
-        approvers,
-        negotiators,
-      })
-      did.value = response.did
-      if (selectedParentContractDid.value) {
-        const newContract = await contractWorkflowService.retrieveById({ did: response.did })
-        if (!newContract?.contract_data) {
-          throw new Error('Could not reload created contract')
-        }
-        const contractData = {
-          ...newContract.contract_data,
-          'dcs:parentContract': { '@id': selectedParentContractDid.value },
-        } as ContractData
-        await contractWorkflowService.update({
-          did: newContract.did,
-          updated_at: newContract.updated_at,
-          contract_data: contractData,
-        })
-      }
-      errorStore.add('Contract created.', 'info')
+    const created = await contractWorkflowService.create({ template_did: selectedTemplate.value.did })
+    const fresh = await contractWorkflowService.retrieveById({ did: created.did })
+    if (!fresh?.contract_data) throw new Error('Could not load created contract draft')
+    const contractData: ContractData = {
+      ...fresh.contract_data,
+      ...(selectedParentContractDid.value ? { 'dcs:parentContract': { '@id': selectedParentContractDid.value } } : {}),
+      ...(initialParty.value.trim() ? { 'dcs:parties': [{ '@id': initialParty.value.trim() }] } : {}),
+      ...(initialAsset.value.trim() ? { 'dcs:assets': [{ '@id': initialAsset.value.trim() }] } : {}),
+      ...(initialPolicy.value.trim() ? { 'dcs:policyTypes': [{ '@id': initialPolicy.value.trim() }] } : {}),
+      ...(initialEvidence.value.trim()
+        ? { 'dcs:evidence': [{ '@id': initialEvidence.value.trim(), '@type': 'dcs:Evidence' as const }] }
+        : {}),
     }
+    await contractWorkflowService.update({
+      did: fresh.did,
+      updated_at: fresh.updated_at,
+      name: initialName.value.trim() || undefined,
+      contract_data: contractData,
+    })
+    createdDraft.value = await contractWorkflowService.retrieveById({ did: fresh.did })
+    if (!createdDraft.value) throw new Error('Could not reload persisted contract draft')
   } catch (error) {
-    console.error('creation failed', error)
+    console.error('Contract draft creation failed', error)
   } finally {
     isSubmitting.value = false
   }
@@ -224,7 +230,7 @@ const submitContract = async ({ reviewers, approvers, negotiators }: Participant
 }
 
 const submitRejectedContract = async () => {
-  if (!contract.value || !verifySemanticValues()) return
+  if (!contract.value) return
   isSubmitting.value = true
   try {
     const updatedContract = await saveContractDraftForSubmit()
@@ -345,18 +351,27 @@ onBeforeRouteLeave(() => {
 
 <template>
   <div class="flex h-full flex-col">
+    <RouterLink
+      v-if="createdDraft"
+      data-test-id="contract-save-result"
+      :data-test-key="createdDraft.did"
+      :to="{ name: ROUTES.CONTRACTS.VIEW, params: { did: createdDraft.did } }"
+      class="mx-6 mt-4 alert alert-success"
+    >
+      Draft saved · {{ createdDraft.did }}
+    </RouterLink>
     <div v-if="!isEditMode" class="flex flex-1 flex-col">
       <div v-if="!selectedTemplate" class="flex flex-1 items-center justify-center px-6 py-20">
         <select
-          v-model="selectedTemplate"
+          v-model="selectedTemplateDid"
           data-test-id="contract-create-template"
           class="select w-150"
           :disabled="!hasApprovedTemplates"
         >
-          <option :value="null" disabled selected>
+          <option :value="null" disabled>
             {{ hasApprovedTemplates ? 'Pick a template' : 'No templates available' }}
           </option>
-          <option v-for="template in approvedTemplates" :key="template.did" :value="template">
+          <option v-for="template in approvedTemplates" :key="template.did" :value="template.did">
             Version {{ template.version }} - {{ template.name?.slice(0, 80)
             }}{{ (template.name?.length ?? 0) > 80 ? '…' : '' }}
           </option>
@@ -364,15 +379,47 @@ onBeforeRouteLeave(() => {
       </div>
       <ViewContractTemplateView v-else :did="selectedTemplate.did" :embedded="true">
         <template #before-tabs>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <input
+              v-model="initialName"
+              data-test-id="contract-create-name"
+              class="input-bordered input"
+              placeholder="Contract name"
+            />
+            <input
+              v-model="initialParty"
+              data-test-id="contract-create-party"
+              class="input-bordered input"
+              placeholder="Party DID"
+            />
+            <input
+              v-model="initialAsset"
+              data-test-id="contract-create-asset"
+              class="input-bordered input"
+              placeholder="Asset reference"
+            />
+            <input
+              v-model="initialPolicy"
+              data-test-id="contract-create-policy"
+              class="input-bordered input"
+              placeholder="Policy type"
+            />
+            <input
+              v-model="initialEvidence"
+              data-test-id="contract-create-evidence"
+              class="input-bordered input"
+              placeholder="Evidence reference"
+            />
+          </div>
           <div class="flex items-end gap-4">
             <div class="flex-1">
               <p class="mb-1 text-xs font-semibold text-base-content/60">Template</p>
               <select
-                v-model="selectedTemplate"
+                v-model="selectedTemplateDid"
                 data-test-id="contract-create-template"
                 class="select w-full select-sm"
               >
-                <option v-for="template in approvedTemplates" :key="template.did" :value="template">
+                <option v-for="template in approvedTemplates" :key="template.did" :value="template.did">
                   Version {{ template.version }} - {{ template.name?.slice(0, 80)
                   }}{{ (template.name?.length ?? 0) > 80 ? '…' : '' }}
                 </option>
@@ -483,12 +530,15 @@ onBeforeRouteLeave(() => {
     <div class="sticky bottom-0 shrink-0 border-t border-base-300 bg-base-100">
       <div class="mx-auto flex max-w-4xl flex-col gap-3 px-6 py-3 md:flex-row">
         <button class="btn btn-outline md:w-32" @click="$router.back()">Back</button>
-        <ParticipantSelectionDialog
+        <button
           v-if="!isEditMode"
+          data-test-id="contract-create-save-draft"
           :disabled="isSubmitting || !canSubmit"
           class="btn flex-1 btn-primary"
-          @submit="createContract"
-        />
+          @click="createPopulatedDraft"
+        >
+          Save draft
+        </button>
         <button
           v-if="isEditMode"
           data-test-id="contract-create-save-draft"

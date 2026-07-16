@@ -120,6 +120,26 @@ var ContractTemplateUpdateManageResponse = Type("ContractTemplateUpdateManageRes
 	Required("did")
 })
 
+var ContractTemplateDependencyValidateRequest = Type("ContractTemplateDependencyValidateRequest", func() {
+	Description("Validate one template dependency against the authoritative repository graph")
+	Token("token", String, "JWT token")
+	Attribute("template_did", String, "DID of the template being edited")
+	Attribute("reference_did", String, "Raw dependency DID to validate")
+	Required("template_did", "reference_did")
+})
+
+var ContractTemplateDependencyValidateResponse = Type("ContractTemplateDependencyValidateResponse", func() {
+	Description("Validated immutable dependency snapshot")
+	Attribute("valid", Boolean, "True when the dependency exists and does not create a cycle")
+	Attribute("did", String, "Authoritative dependency DID")
+	Attribute("document_number", String, "Document number")
+	Attribute("version", Int, "Authoritative dependency version")
+	Attribute("name", String, "Template name")
+	Attribute("description", String, "Template description")
+	Attribute("template_data", Any, "Authoritative dependency snapshot")
+	Required("valid", "did", "version", "template_data")
+})
+
 var ContractTemplateSearchRequest = Type("ContractTemplateSearchRequest", func() {
 	Description("Contract template search request")
 
@@ -149,12 +169,13 @@ var ContractTemplateSearchResponse = Type("ContractTemplateSearchResponse", func
 	Attribute("template_type", String, "The type of the template")
 	Attribute("name", String, "The name of the contract template")
 	Attribute("description", String, "A description for that template")
+	Attribute("created_by", String, "Identifier of the template creator")
 
 	Attribute("created_at", String, "The timestamp when the contract template was created")
 
 	Attribute("updated_at", String, "The timestamp when the contract template was updated")
 
-	Required("did", "state", "template_type", "created_at", "updated_at", "version")
+	Required("did", "state", "template_type", "created_by", "created_at", "updated_at", "version")
 })
 
 var ContractTemplateRetrieveRequest = Type("ContractTemplateRetrieveRequest", func() {
@@ -591,6 +612,31 @@ var _ = Service("TemplateRepository", func() {
 		})
 	})
 
+	Method("validate_dependency", func() {
+		Description("Validate an arbitrary template reference before it may be persisted")
+		Meta("dcs:requirements", "DCS-FR-TR-23", "DCS-FR-TR-26")
+		Meta("dcs:ui", "Template Builder")
+		Security(JWTAuth, func() {
+			Scope("Template Creator")
+			Scope("Template Reviewer")
+			Scope("Template Manager")
+		})
+		Payload(ContractTemplateDependencyValidateRequest)
+		Result(ContractTemplateDependencyValidateResponse)
+		Error("invalid_dependency_did", ErrorResult, "The reference is not a valid template identifier")
+		Error("dependency_template_not_found", ErrorResult, "The referenced template does not exist")
+		Error("dependency_cycle", ErrorResult, "The dependency would create a cycle")
+		Error("internal_error", ErrorResult, "Internal server error")
+		HTTP(func() {
+			POST("/template/dependency/validate")
+			Response(StatusOK)
+			Response("invalid_dependency_did", StatusBadRequest)
+			Response("dependency_template_not_found", StatusNotFound)
+			Response("dependency_cycle", StatusConflict)
+			Response("internal_error", StatusInternalServerError)
+		})
+	})
+
 	// GET /template/search
 	Method("search", func() {
 		Description("perform filtered searches.")
@@ -885,6 +931,10 @@ var _ = Service("TemplateRepository", func() {
 		Security(JWTAuth, func() {
 			Scope("Auditor")
 			Scope("Compliance Officer")
+			Scope("Template Creator")
+			Scope("Template Reviewer")
+			Scope("Template Approver")
+			Scope("Template Manager")
 		})
 
 		Payload(ContractTemplateAuditRequest)

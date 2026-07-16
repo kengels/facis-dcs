@@ -14,8 +14,30 @@ spec:
         app.kubernetes.io/name: orce
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      {{- if .Values.localTSA.enabled }}
+      {{- if or .Values.persistence.enabled .Values.localTSA.enabled }}
       initContainers:
+        {{- if .Values.persistence.enabled }}
+        # Mounting an empty PVC at /data hides the settings and Node modules
+        # shipped by the ORCE image. Seed the volume once before Node-RED starts
+        # while keeping runtime data (including the archive audit chain) intact
+        # across subsequent pod restarts.
+        - name: initialize-orce-data
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              if [ ! -f /persistent-data/.orce-data-initialized ] || [ ! -f /persistent-data/settings.js ]; then
+                cp -a /data/. /persistent-data/
+                touch /persistent-data/.orce-data-initialized
+              fi
+          volumeMounts:
+            - name: orce-data
+              mountPath: /persistent-data
+        {{- end }}
+        {{- if .Values.localTSA.enabled }}
         # openssl ts -reply needs a writable, pre-existing serial file.
         - name: seed-tsa-serial
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -24,6 +46,7 @@ spec:
           volumeMounts:
             - name: tsa-state
               mountPath: /data/tsa-state
+        {{- end }}
       {{- end }}
       containers:
         - name: orce

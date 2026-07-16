@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -32,6 +33,43 @@ type Auditor struct {
 	ATrailReader base.AuditTrailReader
 }
 
+// ReadScopedAuditEntries combines the asynchronously materialized audit chain
+// with canonical transactional outbox events for one resource.
+func ReadScopedAuditEntries(ctx context.Context, tx *sqlx.Tx, reader base.AuditTrailReader, scope componenttype.ComponentType, did string) ([]datatype.AuditLogEntry, error) {
+	entries, err := reader.ReadAuditLogEntriesByComponentAndDID(ctx, tx, scope, did)
+	if err != nil {
+		return nil, fmt.Errorf("could not read audit log entries: %w", err)
+	}
+	outboxEntries := make([]datatype.AuditLogEntry, 0)
+	if err := tx.SelectContext(ctx, &outboxEntries, `
+		SELECT id, component, event_type, event_data, did, created_at,
+		       NULL::text AS res_log_pred_cid, NULL::text AS global_log_pred_cid
+		FROM outbox_events
+		WHERE component = $1 AND did = $2
+		ORDER BY created_at DESC, id DESC
+	`, scope.String(), did); err != nil {
+		return nil, fmt.Errorf("could not read transactional audit entries: %w", err)
+	}
+	seen := make(map[int64]struct{}, len(entries)+len(outboxEntries))
+	for _, entry := range entries {
+		seen[entry.ID] = struct{}{}
+	}
+	for _, entry := range outboxEntries {
+		if _, exists := seen[entry.ID]; exists {
+			continue
+		}
+		entries = append(entries, entry)
+		seen[entry.ID] = struct{}{}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].CreatedAt.Equal(entries[j].CreatedAt) {
+			return entries[i].ID > entries[j].ID
+		}
+		return entries[i].CreatedAt.After(entries[j].CreatedAt)
+	})
+	return entries, nil
+}
+
 func (h *Auditor) Handle(ctx context.Context, query GetAuditLogQry) ([][]datatype.AuditLogEntry, error) {
 
 	tx, err := h.DB.BeginTxx(ctx, nil)
@@ -44,9 +82,18 @@ func (h *Auditor) Handle(ctx context.Context, query GetAuditLogQry) ([][]datatyp
 		}
 	}(tx)
 
-	result, err := h.ATrailReader.ReadAuditLogEntriesByComponent(ctx, tx, query.Scope)
-	if err != nil {
-		return nil, fmt.Errorf("could not read audit log entries: %w", err)
+	var result [][]datatype.AuditLogEntry
+	if query.DID != "" {
+		entries, readErr := ReadScopedAuditEntries(ctx, tx, h.ATrailReader, query.Scope, query.DID)
+		if readErr != nil {
+			return nil, readErr
+		}
+		result = [][]datatype.AuditLogEntry{entries}
+	} else {
+		result, err = h.ATrailReader.ReadAuditLogEntriesByComponent(ctx, tx, query.Scope)
+		if err != nil {
+			return nil, fmt.Errorf("could not read audit log entries: %w", err)
+		}
 	}
 
 	evt := event2.AuditEvent{

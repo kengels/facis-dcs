@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, normalizeClass, ref, useAttrs, useTemplateRef } from 'vue'
+import { computed, normalizeClass, ref, useAttrs, useTemplateRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmationModal from '@/components/ConfirmationModal.vue'
 import { useContractPermissions } from '@/modules/contract-workflow-engine/composables/useContractPermissions'
@@ -44,6 +44,46 @@ const canDeploy = computed(() => {
 })
 
 const deploying = ref(false)
+const renewals = ref<{ did: string; renews_did: string; renews_contract_version: number }[]>([])
+const renewing = ref(false)
+
+const canRenew = computed(
+  () =>
+    isManager.value &&
+    new Set<ContractState>([
+      ContractState.approved,
+      ContractState.signed,
+      ContractState.active,
+      ContractState.terminated,
+      ContractState.expired,
+    ]).has(props.contract.state),
+)
+
+const loadRenewals = async () => {
+  if (!canRenew.value) {
+    renewals.value = []
+    return
+  }
+  renewals.value = await contractWorkflowService.retrieveRenewals(props.contract.did)
+}
+
+const renew = async () => {
+  if (!canRenew.value || renewing.value || renewals.value.length > 0) return
+  renewing.value = true
+  try {
+    await contractWorkflowService.renew({
+      did: props.contract.did,
+      updated_at: props.contract.updated_at,
+    })
+    await loadRenewals()
+  } catch (err) {
+    console.error('Renewal failed:', err)
+  } finally {
+    renewing.value = false
+  }
+}
+
+watch([() => props.contract.did, canRenew], loadRenewals, { immediate: true })
 
 const deploy = async () => {
   if (!isManager.value || props.contract.state !== ContractState.signed) return
@@ -92,6 +132,25 @@ const terminate = async () => {
   <button v-if="canDeploy" :class="[filteredClass, 'btn-primary']" :disabled="deploying" @click="deploy">
     {{ deploying ? 'Deploying…' : 'Deploy' }}
   </button>
+  <button
+    v-if="canRenew"
+    data-test-id="contract-manager-renew"
+    :class="[filteredClass, 'btn-primary']"
+    :disabled="renewing || renewals.length > 0"
+    @click="renew"
+  >
+    {{ renewing ? 'Renewing…' : 'Renew' }}
+  </button>
+  <div
+    v-for="renewal in renewals"
+    :key="renewal.did"
+    data-test-id="contract-renewal-result"
+    :data-test-key="renewal.did"
+    class="alert alert-success"
+  >
+    <RouterLink :to="{ name: ROUTES.CONTRACTS.VIEW, params: { did: renewal.did } }">{{ renewal.did }}</RouterLink>
+    <span data-test-id="contract-renewal-source-reference">{{ renewal.renews_did }}</span>
+  </div>
   <button
     v-if="canTerminate"
     data-test-id="contract-manager-terminate"

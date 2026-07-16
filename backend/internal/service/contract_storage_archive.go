@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"digital-contracting-service/internal/base/datatype"
 	"digital-contracting-service/internal/base/datatype/componenttype"
 	baseevent "digital-contracting-service/internal/base/event"
+	"digital-contracting-service/internal/contractworkflowengine/datatype/archivestatus"
 	"digital-contracting-service/internal/contractworkflowengine/datatype/contractstate"
 	"digital-contracting-service/internal/contractworkflowengine/db"
 	contractevents "digital-contracting-service/internal/contractworkflowengine/event"
@@ -116,6 +118,61 @@ func (s *contractStorageArchivesrvc) Search(ctx context.Context, p *contractstor
 	}
 
 	return contracts, nil
+}
+
+// Dashboard returns a read model built exclusively from persisted archive
+// entries and their transactional outbox events. It deliberately exposes no
+// storage-volume or saved-query values because there is no authoritative
+// product contract for those concepts.
+func (s *contractStorageArchivesrvc) Dashboard(ctx context.Context, _ *contractstoragearchive.ArchiveRetrieveRequest) (*contractstoragearchive.ArchiveDashboardResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
+	defer cancel()
+
+	result, err := (&contract.GetArchiveDashboardHandler{DB: s.DB, CRepo: s.CRepo}).Handle(ctx)
+	if err != nil {
+		return nil, contractstoragearchive.MakeInternalError(err)
+	}
+
+	recentActions := make([]*contractstoragearchive.ArchiveDashboardRecentAction, 0, len(result.RecentActions))
+	for _, row := range result.RecentActions {
+		recentActions = append(recentActions, &contractstoragearchive.ArchiveDashboardRecentAction{
+			ID: row.ID, Did: row.DID, EventType: row.EventType,
+			OccurredAt: row.OccurredAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+
+	now := time.Now().UTC()
+	expiring := make([]*contractstoragearchive.ContractItem, 0)
+	for _, item := range result.Contracts {
+		if item.ExpDate != nil && item.ExpDate.After(now) {
+			expiring = append(expiring, toArchiveContractItem(item))
+		}
+	}
+	slices.SortFunc(expiring, func(a, b *contractstoragearchive.ContractItem) int {
+		return strings.Compare(stringValue(a.ExpDate), stringValue(b.ExpDate))
+	})
+
+	archiveEntries := 0
+	entriesWithProof := 0
+	for _, entry := range result.Entries {
+		if entry.ArchiveStatus == archivestatus.Deleted.String() {
+			continue
+		}
+		archiveEntries++
+		if archiveContentHashPattern.MatchString(entry.ContentHash) && strings.TrimSpace(entry.SnapshotCID) != "" {
+			entriesWithProof++
+		}
+	}
+
+	return &contractstoragearchive.ArchiveDashboardResponse{
+		RecentActions:     recentActions,
+		ExpiringContracts: expiring,
+		Compliance: &contractstoragearchive.ArchiveDashboardComplianceSummary{
+			ArchiveEntries: archiveEntries, EntriesWithProof: entriesWithProof,
+			EntriesWithoutProof: archiveEntries - entriesWithProof,
+		},
+		Source: "server", GeneratedAt: now.Format(time.RFC3339Nano),
+	}, nil
 }
 
 func (s *contractStorageArchivesrvc) Store(ctx context.Context, p *contractstoragearchive.StorePayload) (res string, err error) {

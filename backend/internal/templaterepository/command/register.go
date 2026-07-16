@@ -67,6 +67,9 @@ func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) (*string, error
 	if err != nil {
 		return nil, fmt.Errorf("could not check if contract template already exists: %s", cmd.DID)
 	}
+	if err := validateRegistrationState(existing); err != nil {
+		return nil, err
+	}
 
 	err = tx.Commit()
 	if err != nil {
@@ -238,6 +241,13 @@ func (h *Registrar) Handle(ctx context.Context, cmd RegisterCmd) (*string, error
 
 		return newDID, nil
 	}
+}
+
+func validateRegistrationState(template *db.ContractTemplate) error {
+	if template != nil && template.State != contracttemplatestate.Approved.String() {
+		return errors.New("contract template must be approved before registration")
+	}
+	return nil
 }
 
 // issueProvenanceCredential gathers the version's actor trail (creator from

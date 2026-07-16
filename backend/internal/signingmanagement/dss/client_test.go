@@ -57,3 +57,14 @@ func TestValidatePDFRejectsReportWithoutIndication(t *testing.T) {
 		t.Fatal("expected an error for a response without an Indication")
 	}
 }
+
+func TestReportPassedRecognizesDSSVocabularyVariants(t *testing.T) {
+	for _, indication := range []string{"TOTAL-PASSED", "TOTAL_PASSED", "total-passed"} {
+		if !(&Report{Indication: indication}).Passed() {
+			t.Fatalf("expected %q to be recognized as passed", indication)
+		}
+	}
+	if (&Report{Indication: "INDETERMINATE"}).Passed() {
+		t.Fatal("indeterminate report must not be recognized as passed")
+	}
+}

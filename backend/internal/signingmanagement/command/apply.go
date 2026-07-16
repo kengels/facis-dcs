@@ -21,6 +21,7 @@ import (
 	"digital-contracting-service/internal/base/ipfs"
 	"digital-contracting-service/internal/base/validation"
 	cwecommand "digital-contracting-service/internal/contractworkflowengine/command"
+	"digital-contracting-service/internal/contractworkflowengine/datatype/archivestatus"
 	"digital-contracting-service/internal/contractworkflowengine/datatype/contractstate"
 	cwedb "digital-contracting-service/internal/contractworkflowengine/db"
 	cweevent "digital-contracting-service/internal/contractworkflowengine/event"
@@ -385,6 +386,7 @@ func (h *Applier) Handle(ctx context.Context, cmd ApplyCmd) error {
 		PDFHash:        &signedPDFHash,
 		ContentHash:    &contentHash,
 		FieldName:      &fieldName,
+		SignedAt:       &signedAt,
 	}
 	if err := h.CRepo.CreateSignature(ctx, tx, signature); err != nil {
 		return fmt.Errorf("could not create signature: %w", err)
@@ -533,7 +535,7 @@ func (h *Applier) archiveSignedContract(ctx context.Context, tx *sqlx.Tx, did st
 		StoredBy:        appliedBy,
 		ContentHash:     archiveEntry.ContentHash,
 		SnapshotCID:     archiveEntry.SnapshotCID,
-		ArchiveStatus:   "STORED",
+		ArchiveStatus:   archivestatus.Stored.String(),
 		NotaryReceipt:   notaryEventReceipt,
 		TSAReceipt:      tsaReceipt,
 		EvidenceSummary: cweevent.ArchiveEvidenceSummary{

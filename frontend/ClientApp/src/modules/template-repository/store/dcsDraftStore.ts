@@ -33,7 +33,7 @@ import {
   type OdrlSet,
 } from '@/models/dcs-jsonld'
 import type { SemanticConditionValue } from '@/models/contract-data'
-import type { ContractTemplate, SubTemplateSnapshot } from '@/models/contract-template'
+import type { SubTemplateSnapshot } from '@/models/contract-template'
 import type { ContractTemplateResponsible } from '@/models/contract-template-responsible'
 import type {
   ContractTemplateCreateRequest,
@@ -391,7 +391,7 @@ export const useDcsDraftStore = defineStore(storeId, {
     updateDocumentNumber(documentNumber: string): void {
       this.document_number = documentNumber || null
     },
-    addSubTemplateSnapshot(template: ContractTemplate): void {
+    addSubTemplateSnapshot(template: SubTemplateSnapshot): void {
       const snapshot: SubTemplateSnapshot = {
         did: template.did,
         version: template.version,

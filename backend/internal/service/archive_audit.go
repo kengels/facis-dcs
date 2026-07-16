@@ -6,8 +6,10 @@ import (
 	"time"
 
 	processauditandcompliance "digital-contracting-service/gen/process_audit_and_compliance"
+	"digital-contracting-service/internal/base"
 	"digital-contracting-service/internal/base/datatype"
 	"digital-contracting-service/internal/base/datatype/componenttype"
+	pacquery "digital-contracting-service/internal/processauditandcompliance/query"
 )
 
 func (s *processAuditAndCompliancesrvc) auditArchiveTrailEntries(ctx context.Context) (map[string][]*processauditandcompliance.PACResourceAuditTrailEntry, error) {
@@ -66,9 +68,24 @@ func (s *processAuditAndCompliancesrvc) auditArchiveTrailEntries(ctx context.Con
 			CreatedAt: entry.StoredAt.UTC().Format(time.RFC3339),
 			Kind:      stringPointer("TIMELINE"),
 		})
-		archiveStoreEvents, err := s.ATrailReader.ReadAuditLogEntriesByComponentAndDID(ctx, tx, componenttype.ContractStorageArchive, did)
+		archiveStoreEvents, err := pacquery.ReadScopedAuditEntries(ctx, tx, s.ATrailReader, componenttype.ContractStorageArchive, did)
 		if err != nil {
 			return nil, err
+		}
+		contractLifecycleEvents, err := pacquery.ReadScopedAuditEntries(ctx, tx, s.ATrailReader, componenttype.ContractWorkflowEngine, did)
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range contractLifecycleEvents {
+			if !base.IsAuditVisibleEventType(entry.EventType) {
+				continue
+			}
+			result[did] = append(result[did], &processauditandcompliance.PACResourceAuditTrailEntry{
+				ID: entry.ID, Component: entry.Component, EventType: entry.EventType,
+				EventData: entry.EventData, Did: entry.DID, CreatedAt: entry.CreatedAt.UTC().Format(time.RFC3339),
+				ResLogPredCid: entry.ResLogPredCID, GlobalLogPredCid: entry.GlobalLogPredCID,
+				Kind: stringPointer("TIMELINE"),
+			})
 		}
 		integrityEntries := s.archiveIntegrityTrailEntries(ctx, entry, i, archiveStoreEvents, notaryEvents, chainErr)
 		if err != nil {

@@ -152,6 +152,8 @@ export interface ContractRecordEvidenceEvent {
   recorded_by: string
   occurred_at: string
   user_roles: UserRole[]
+  evidence_type: string
+  reference: string
 }
 
 export interface ContractAuditEvent {

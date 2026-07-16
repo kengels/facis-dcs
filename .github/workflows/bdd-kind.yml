@@ -36,7 +36,6 @@ jobs:
         run: |
           set -euo pipefail
           make -C tests/bdd run_bdd_kind_ci \
-            PLAYWRIGHT_INSTALL_ARGS="--with-deps chromium" \
             KIND_CLUSTER_NAME=dcs-bdd \
             DOCKER_IMAGE_REPOSITORY=digital-contracting-service \
             DOCKER_IMAGE_TAG=bdd

@@ -82,4 +82,11 @@ cd tests/bdd
 make help          # all targets
 make run_bdd_helm  # full run against a freshly deployed stack
 make run_bdd_fast  # iterate on scenarios against an already-running stack
+make kind_up
+make run_bdd_ui_kind_once  # @ui scenarios in the pinned Python Playwright image
 ```
+
+The UI run uses the real OID4VP login and the UI shipped in the Helm product image. It records
+JUnit, video, screenshots, and traces below `tests/bdd/.reports/ui/`. UI traceability is validated
+with `make validate_ui_coverage` and, after a browser run, `make validate_ui_evidence`; HTTP-only
+tests do not count as UI evidence.

@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"digital-contracting-service/internal/base/identity"
@@ -14,8 +18,11 @@ import (
 
 	signaturemanagement "digital-contracting-service/gen/signature_management"
 	"digital-contracting-service/internal/auth"
+	"digital-contracting-service/internal/auth/oid4vp"
+	oid4vprequest "digital-contracting-service/internal/auth/oid4vp/request"
 	"digital-contracting-service/internal/base"
 	"digital-contracting-service/internal/base/conf"
+	"digital-contracting-service/internal/base/datatype/userrole"
 	cwecommand "digital-contracting-service/internal/contractworkflowengine/command"
 	"digital-contracting-service/internal/contractworkflowengine/datatype/contractstate"
 	cwedb "digital-contracting-service/internal/contractworkflowengine/db"
@@ -24,6 +31,7 @@ import (
 	"digital-contracting-service/internal/pdfgeneration/provenance"
 	"digital-contracting-service/internal/signingmanagement/command"
 	db "digital-contracting-service/internal/signingmanagement/db"
+	"digital-contracting-service/internal/signingmanagement/pidverify"
 	"digital-contracting-service/internal/signingmanagement/query"
 	"digital-contracting-service/internal/signingmanagement/signer"
 
@@ -66,13 +74,18 @@ type signatureManagementsrvc struct {
 	ArchiveRepo   cwedb.ContractRepo
 	ArchiveNotary cwecommand.ArchiveNotary
 	ArchiveTSA    *tsa.APIClient
+	PublicAPIBase string
+	RequestSigner oid4vprequest.Signer
+	PIDDCQLQuery  any
+	PIDVerifier   oid4vp.Verifier
 	auth.JWTAuthenticator
 }
 
 func NewSignatureManagement(db *sqlx.DB, jwtAuth auth.JWTAuthenticator, cRepo db.ContractRepo, ceremonyRepo db.CeremonyRepo,
 	auditTrailReader base.AuditTrailReader, contractSigner signer.ContractSigner, vcSigner provenance.VCSigner, issuerDID string,
 	ipfsClient *ipfs.APIClient, pdfCore *pdfcore.Client, archiveRepo cwedb.ContractRepo, archiveNotary cwecommand.ArchiveNotary,
-	archiveTSA *tsa.APIClient, vcIssuer provenance.VCIssuer) signaturemanagement.Service {
+	archiveTSA *tsa.APIClient, vcIssuer provenance.VCIssuer, publicAPIBase string, requestSigner oid4vprequest.Signer,
+	pidDCQLQuery any, pidVerifier oid4vp.Verifier) signaturemanagement.Service {
 
 	return &signatureManagementsrvc{
 		JWTAuthenticator: jwtAuth,
@@ -89,6 +102,10 @@ func NewSignatureManagement(db *sqlx.DB, jwtAuth auth.JWTAuthenticator, cRepo db
 		ArchiveRepo:      archiveRepo,
 		ArchiveNotary:    archiveNotary,
 		ArchiveTSA:       archiveTSA,
+		PublicAPIBase:    publicAPIBase,
+		RequestSigner:    requestSigner,
+		PIDDCQLQuery:     pidDCQLQuery,
+		PIDVerifier:      pidVerifier,
 	}
 }
 
@@ -157,6 +174,16 @@ func (s *signatureManagementsrvc) Retrieve(ctx context.Context, req *signaturema
 
 	var signingTasks []*signaturemanagement.SMContractSigningTaskItem
 	for _, item := range result.SigningTasks {
+		var deadline *string
+		if item.Deadline != nil {
+			formatted := item.Deadline.Format(time.RFC3339)
+			deadline = &formatted
+		}
+		var signedAt *string
+		if item.SignedAt != nil {
+			formatted := item.SignedAt.Format(time.RFC3339)
+			signedAt = &formatted
+		}
 		signingTasks = append(signingTasks, &signaturemanagement.SMContractSigningTaskItem{
 			Did:             item.DID,
 			ContractVersion: item.ContractVersion,
@@ -164,6 +191,10 @@ func (s *signatureManagementsrvc) Retrieve(ctx context.Context, req *signaturema
 			Signer:          item.SignerDID,
 			FieldName:       item.FieldName,
 			CreatedAt:       item.CreatedAt.Format(time.RFC3339),
+			Order:           item.Order,
+			Dependency:      item.Dependency,
+			Deadline:        deadline,
+			SignedAt:        signedAt,
 		})
 	}
 
@@ -239,12 +270,29 @@ func (s *signatureManagementsrvc) Verify(ctx context.Context, req *signaturemana
 		CRepo:   s.CRepo,
 		PDFCore: s.PDFCore,
 	}
-	_, err = handler.Handle(ctx, qry)
+	result, err := handler.Handle(ctx, qry)
 	if err != nil {
 		return nil, signaturemanagement.MakeInternalError(err)
 	}
 
-	return &signaturemanagement.SMContractVerifyResponse{}, nil
+	integrityStatus := "INVALID"
+	if result.Match {
+		integrityStatus = "VALID"
+	}
+	envelopeStatus := "INVALID"
+	if result.Match && result.SigCount > 0 {
+		envelopeStatus = "VALID"
+	}
+	return &signaturemanagement.SMContractVerifyResponse{
+		Did:             req.Did,
+		Match:           result.Match,
+		JsonldHash:      result.JsonldHash,
+		BasePdfHash:     result.BasePdfHash,
+		SigCount:        result.SigCount,
+		Findings:        result.Findings,
+		IntegrityStatus: integrityStatus,
+		EnvelopeStatus:  envelopeStatus,
+	}, nil
 }
 
 func (s *signatureManagementsrvc) Apply(ctx context.Context, req *signaturemanagement.SMContractApplyRequest) (res *signaturemanagement.SMContractApplyResponse, err error) {
@@ -345,9 +393,14 @@ func (s *signatureManagementsrvc) Validate(ctx context.Context, req *signaturema
 
 	}
 
+	status := "VALID"
+	if len(result.Findings) > 0 {
+		status = "INVALID"
+	}
 	return &signaturemanagement.SMContractValidateResponse{
 		Did:      req.Did,
 		Findings: result.Findings,
+		Status:   status,
 	}, nil
 }
 
@@ -405,7 +458,7 @@ func (s *signatureManagementsrvc) Audit(ctx context.Context, req *signaturemanag
 			EventType:        entry.EventType,
 			EventData:        entry.EventData,
 			Did:              entry.DID,
-			CreatedAt:        entry.CreatedAt.String(),
+			CreatedAt:        formatAPITimestamp(entry.CreatedAt),
 			GlobalLogPredCid: entry.GlobalLogPredCID,
 			ResLogPredCid:    entry.ResLogPredCID,
 		})
@@ -436,9 +489,14 @@ func (s *signatureManagementsrvc) Compliance(ctx context.Context, req *signature
 
 	}
 
+	status := "COMPLIANT"
+	if len(findings) > 0 {
+		status = "NON_COMPLIANT"
+	}
 	return &signaturemanagement.SMContractComplianceResponse{
 		Did:      req.Did,
 		Findings: findings,
+		Status:   status,
 	}, nil
 }
 
@@ -501,14 +559,26 @@ func (s *signatureManagementsrvc) View(ctx context.Context, req *signaturemanage
 			t := rec.RevokedAt.UTC().Format(time.RFC3339)
 			item.RevokedAt = &t
 		}
+		item.RevocationReason = rec.RevokedReason
 		signatures = append(signatures, item)
 	}
 
+	integrityStatus := "VALID"
+	if len(validation.Findings) > 0 {
+		integrityStatus = "INVALID"
+	}
+	roles := userrole.UserRoles(middleware.GetUserRoles(ctx))
 	return &signaturemanagement.SMSignatureViewResponse{
 		Did:               req.Did,
 		ContractState:     processData.State,
 		Signatures:        signatures,
 		IntegrityFindings: validation.Findings,
+		IntegrityStatus:   integrityStatus,
+		CanRevoke: roles.HasRoles(
+			userrole.ComplianceOfficer,
+			userrole.ContractManager,
+			userrole.SystemContractManager,
+		),
 	}, nil
 }
 
@@ -521,6 +591,7 @@ func (s *signatureManagementsrvc) StartCeremony(ctx context.Context, req *signat
 		ContractDID: req.ContractDid,
 		FieldName:   req.FieldName,
 		RequestedBy: middleware.GetParticipantID(ctx),
+		BaseURL:     s.PublicAPIBase,
 	})
 	if err != nil {
 		return nil, signaturemanagement.MakeInternalError(err)
@@ -561,6 +632,89 @@ func (s *signatureManagementsrvc) CeremonyStatus(ctx context.Context, req *signa
 	expiresAt := ceremony.ExpiresAt.Format(time.RFC3339)
 	res.ExpiresAt = &expiresAt
 	return res, nil
+}
+
+func (s *signatureManagementsrvc) CeremonyPresentationRequest(ctx context.Context, req *signaturemanagement.SMSignaturePresentationRequest) (io.ReadCloser, error) {
+	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
+	defer cancel()
+
+	handler := query.CeremonyStatusHandler{DB: s.DB, CeremonyRepo: s.CeremonyRepo}
+	ceremony, err := handler.Handle(ctx, query.CeremonyStatusQry{CeremonyID: req.CeremonyID})
+	if err != nil {
+		return nil, signaturemanagement.MakeInternalError(err)
+	}
+	if ceremony == nil {
+		return nil, signaturemanagement.MakeNotFound(fmt.Errorf("ceremony %s not found", req.CeremonyID))
+	}
+	if ceremony.Status != db.CeremonyPending || !ceremony.ExpiresAt.After(time.Now().UTC()) {
+		return nil, signaturemanagement.MakeBadRequest(fmt.Errorf("ceremony is not pending"))
+	}
+
+	walletNonce := ""
+	if req.WalletNonce != nil {
+		walletNonce = strings.TrimSpace(*req.WalletNonce)
+	}
+	requestJWT, err := oid4vprequest.BuildJWT(s.RequestSigner, oid4vprequest.Params{
+		ClientID:    pidverify.Audience,
+		ResponseURI: strings.TrimRight(s.PublicAPIBase, "/") + "/signature/presentation/callback",
+		State:       ceremony.ID,
+		Nonce:       ceremony.Nonce,
+		WalletNonce: walletNonce,
+		ExpiresAt:   ceremony.ExpiresAt,
+		DCQLQuery:   s.PIDDCQLQuery,
+	})
+	if err != nil {
+		return nil, signaturemanagement.MakeInternalError(err)
+	}
+	return io.NopCloser(bytes.NewReader([]byte(requestJWT))), nil
+}
+
+func (s *signatureManagementsrvc) CeremonyPresentationCallback(ctx context.Context, req *signaturemanagement.SMSignaturePresentationCallback) (*signaturemanagement.SMSignatureWebhookResponse, error) {
+	if req.Error != nil && strings.TrimSpace(*req.Error) != "" {
+		return nil, signaturemanagement.MakeBadRequest(fmt.Errorf("wallet presentation failed: %s", strings.TrimSpace(*req.Error)))
+	}
+	if req.VpToken == nil {
+		return nil, signaturemanagement.MakeBadRequest(fmt.Errorf("vp_token is required"))
+	}
+	var presentations map[string][]string
+	if err := json.Unmarshal([]byte(*req.VpToken), &presentations); err != nil {
+		return nil, signaturemanagement.MakeBadRequest(fmt.Errorf("decode DCQL presentation result: %w", err))
+	}
+	var vpToken string
+	for _, values := range presentations {
+		for _, value := range values {
+			if vpToken != "" {
+				return nil, signaturemanagement.MakeBadRequest(fmt.Errorf("exactly one PID presentation is required"))
+			}
+			vpToken = strings.TrimSpace(value)
+		}
+	}
+	if vpToken == "" {
+		return nil, signaturemanagement.MakeBadRequest(fmt.Errorf("PID presentation is empty"))
+	}
+	ceremonyQuery := query.CeremonyStatusHandler{DB: s.DB, CeremonyRepo: s.CeremonyRepo}
+	ceremonyStatus, err := ceremonyQuery.Handle(ctx, query.CeremonyStatusQry{CeremonyID: req.State})
+	if err != nil {
+		return nil, signaturemanagement.MakeInternalError(err)
+	}
+	if ceremonyStatus == nil {
+		return nil, signaturemanagement.MakeNotFound(fmt.Errorf("ceremony %s not found", req.State))
+	}
+	if _, err := s.PIDVerifier.VerifyPID(vpToken, oid4vp.PresentationContext{
+		Nonce: ceremonyStatus.Nonce, ClientID: pidverify.Audience,
+	}); err != nil {
+		return nil, signaturemanagement.MakeBadRequest(fmt.Errorf("PID presentation trust verification failed: %w", err))
+	}
+
+	handler := command.PresentationHandler{DB: s.DB, CeremonyRepo: s.CeremonyRepo}
+	ceremony, err := handler.Handle(ctx, req.State, vpToken)
+	if err != nil {
+		if errors.Is(err, command.ErrCeremonyNotFound) {
+			return nil, signaturemanagement.MakeNotFound(err)
+		}
+		return nil, signaturemanagement.MakeBadRequest(err)
+	}
+	return &signaturemanagement.SMSignatureWebhookResponse{CeremonyID: ceremony.ID, Status: ceremony.Status}, nil
 }
 
 func (s *signatureManagementsrvc) CeremonyWebhook(ctx context.Context, req *signaturemanagement.SMSignatureWebhookRequest) (res *signaturemanagement.SMSignatureWebhookResponse, err error) {

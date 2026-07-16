@@ -85,6 +85,27 @@ exercises directly.
     (Archive Manager / Contract Manager), which does not delete the
     archive entry but marks the signature as no longer valid.
 
+## Management and compliance views
+
+- The template views expose hierarchy, dependency findings, review decisions, registration,
+  deprecation, deletion, search, and immutable audit history according to the active role.
+- A contract detail view exposes version comparison, review/approval decisions, hierarchy,
+  evidence, lifecycle history, and target-reported KPIs. Contract Managers can create one
+  renewal linked to the original contract; bulk renewal and notification management are not
+  product capabilities yet.
+- `/signature/view` shows server-derived trust, proof, timestamp, validation, and compliance
+  results. Compliance roles can run checks, revoke when authorized, and generate audit reports;
+  observers receive a read-only view.
+- The archive dashboard supports search, filters, tags, drill-down, annotation, integrity audit,
+  and export of the actual search result. Saved queries and storage-volume analytics are not
+  product capabilities yet.
+- The compliance investigation view turns selected monitoring findings into a persisted incident
+  with affected contract/template DIDs and a reason, and can retrieve and export that case.
+
+Actions that a role may not perform are not rendered, and the same authorization is enforced by
+the server. UI summaries and exports use server results; the browser does not invent archive,
+renewal, signing, or compliance outcomes.
+
 ## Exporting a contract bundle
 
 From a contract's detail view, "Export Bundle" downloads a single ZIP

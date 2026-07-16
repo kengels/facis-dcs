@@ -48,4 +48,8 @@ export interface Contract {
 
 export type ContractChangeRequest = Pick<Contract, 'name' | 'description' | 'exp_notice_period' | 'exp_policy'> & {
   contract_data?: Partial<Contract['contract_data']>
+  /** Negotiator-authored rationale persisted with the versioned change request. */
+  comment?: string
+  /** Human-readable proposed replacement text persisted with the change request. */
+  redline?: string
 }

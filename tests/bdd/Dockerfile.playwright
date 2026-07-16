@@ -1,4 +1,8 @@
-FROM mcr.microsoft.com/playwright/python:v1.52.0-noble
+FROM mcr.microsoft.com/playwright/python:v1.52.0-noble@sha256:a1d2b48b65f41f34e5e1d7690f385f1376397b7208691cba359e4078edbf86cb
+
+ARG BDD_EXECUTOR_COMMIT=478909cdd735bbab8bb63ce955183713d6bb387b
+ARG KUBECTL_VERSION=v1.31.0
+ARG TARGETARCH=amd64
 
 WORKDIR /workspace
 
@@ -6,6 +10,21 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# This pinned image is the reproducible browser runtime reference for the
-# Python Playwright version installed by tests/bdd/Makefile. The kind runner
-# stays on the host so it can use the existing kubectl/Helm port-forwards.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git socat \
+    && curl -fsSLo /usr/local/bin/kubectl \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+    && chmod 0755 /usr/local/bin/kubectl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY testWallet/requirements.txt /tmp/test-wallet-requirements.txt
+
+RUN python -m pip install --no-cache-dir \
+        "playwright==1.52.0" \
+        "eu-xfsc-bdd[dev] @ git+https://github.com/eclipse-xfsc/bdd-executor.git@${BDD_EXECUTOR_COMMIT}" \
+        psycopg2-binary \
+        "pypdf==5.7.0" \
+        -r /tmp/test-wallet-requirements.txt
+
+# The runner joins kind's Docker network and manages its own local forwards.
+# This keeps browser, Behave, kubectl and service traffic in one network model.

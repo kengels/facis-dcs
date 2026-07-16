@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"digital-contracting-service/internal/base/datatype"
+	"digital-contracting-service/internal/base/datatype/componenttype"
 
 	"github.com/jmoiron/sqlx"
 
@@ -31,6 +32,26 @@ func (r *PostgresContractRepo) Create(ctx context.Context, tx *sqlx.Tx, data db.
 		data.DID, data.Origin, data.CreatedBy, data.State, data.Name,
 		data.Description, data.ContractData, data.TemplateDID, data.TemplateVersion, data.Responsible)
 	return err
+}
+
+func (r *PostgresContractRepo) CreateRenewalRelation(ctx context.Context, tx *sqlx.Tx, relation db.ContractRenewalRelation) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO contract_renewal_relations
+		    (renewal_did, original_did, original_contract_version)
+		VALUES ($1, $2, $3)
+	`, relation.RenewalDID, relation.OriginalDID, relation.OriginalContractVersion)
+	return err
+}
+
+func (r *PostgresContractRepo) ReadRenewalRelations(ctx context.Context, tx *sqlx.Tx, originalDID string) ([]db.ContractRenewalRelation, error) {
+	relations := make([]db.ContractRenewalRelation, 0)
+	err := tx.SelectContext(ctx, &relations, `
+		SELECT renewal_did, original_did, original_contract_version, created_at
+		FROM contract_renewal_relations
+		WHERE original_did = $1
+		ORDER BY created_at, renewal_did
+	`, originalDID)
+	return relations, err
 }
 
 func (r *PostgresContractRepo) RemoteCreate(ctx context.Context, tx *sqlx.Tx, data db.Contract) error {
@@ -299,6 +320,21 @@ func (r *PostgresContractRepo) ReadArchiveEntries(ctx context.Context, tx *sqlx.
 		return nil, err
 	}
 	return entries, nil
+}
+
+func (r *PostgresContractRepo) ReadArchiveRecentActions(ctx context.Context, tx *sqlx.Tx, limit int) ([]db.ArchiveDashboardAction, error) {
+	if limit <= 0 {
+		return []db.ArchiveDashboardAction{}, nil
+	}
+	actions := make([]db.ArchiveDashboardAction, 0, limit)
+	err := tx.SelectContext(ctx, &actions, `
+		SELECT id, did, event_type, created_at
+		FROM outbox_events
+		WHERE component = $1 AND did IS NOT NULL
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2
+	`, componenttype.ContractStorageArchive.String(), limit)
+	return actions, err
 }
 
 func (r *PostgresContractRepo) MarkArchiveEntryDeleted(ctx context.Context, tx *sqlx.Tx, did string, deletedBy string, reason string) (int, error) {

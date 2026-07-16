@@ -9,9 +9,6 @@ import (
 // PIDVCT is the German EUDI PID credential type.
 const PIDVCT = "urn:eudi:pid:de:1"
 
-// PlaygroundPIDVCT is returned by the EUDIPLO playground issuer when credentialId is "pid".
-const PlaygroundPIDVCT = "urn:eudi:eaa:loyalty-card:1"
-
 const PIDCredentialQueryID = "eudi_pid_credential"
 
 // DefaultPIDDCQLQuery requests a dc+sd-jwt PID credential for identity presentation.
@@ -23,7 +20,7 @@ func DefaultPIDDCQLQuery() map[string]any {
 				"id":     PIDCredentialQueryID,
 				"format": "dc+sd-jwt",
 				"meta": map[string]any{
-					"vct_values": []string{PIDVCT, PlaygroundPIDVCT},
+					"vct_values": []string{PIDVCT},
 				},
 				"require_cryptographic_holder_binding": true,
 			},

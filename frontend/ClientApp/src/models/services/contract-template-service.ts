@@ -5,6 +5,7 @@ import type {
   ContractTemplateAuditRequest,
   ContractTemplateCopyRequest,
   ContractTemplateCreateRequest,
+  ContractTemplateDependencyValidateRequest,
   ContractTemplatePublishRequest,
   ContractTemplateRegisterRequest,
   ContractTemplateRejectRequest,
@@ -22,6 +23,8 @@ import type {
   ContractTemplateAuditResponse,
   ContractTemplateCopyResponse,
   ContractTemplateCreateResponse,
+  ContractTemplateDependencyValidateResponse,
+  ContractTemplateHistoryResponse,
   ContractTemplatePublishResponse,
   ContractTemplateRegisterResponse,
   ContractTemplateRejectResponse,
@@ -31,10 +34,14 @@ import type {
   ContractTemplateUpdateManageResponse,
   ContractTemplateUpdateResponse,
   ContractTemplateVerifyResponse,
+  TemplateProvenanceResponse,
 } from '../responses/template-response'
 
 export interface ContractTemplateService {
   create: (request: ContractTemplateCreateRequest) => Promise<ContractTemplateCreateResponse>
+  validateDependency: (
+    request: ContractTemplateDependencyValidateRequest,
+  ) => Promise<ContractTemplateDependencyValidateResponse>
   copy: (request: ContractTemplateCopyRequest) => Promise<ContractTemplateCopyResponse>
   submit: (request: ContractTemplateSubmitRequest) => Promise<ContractTemplateSubmitResponse>
   update: (request: ContractTemplateUpdateRequest) => Promise<ContractTemplateUpdateResponse>
@@ -48,6 +55,8 @@ export interface ContractTemplateService {
   archive: (request: ContractTemplateArchiveRequest) => Promise<ContractTemplateArchiveResponse>
   register: (request: ContractTemplateRegisterRequest) => Promise<ContractTemplateRegisterResponse>
   audit: (request: ContractTemplateAuditRequest) => Promise<ContractTemplateAuditResponse>
+  history: (did: string) => Promise<ContractTemplateHistoryResponse>
+  provenance: (did: string) => Promise<TemplateProvenanceResponse>
   publish: (request: ContractTemplatePublishRequest) => Promise<ContractTemplatePublishResponse>
   exportPdf: (did: string) => Promise<Blob>
   verifyPdf: (

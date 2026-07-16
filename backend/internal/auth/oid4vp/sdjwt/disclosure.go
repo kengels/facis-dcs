@@ -37,7 +37,10 @@ func MergeDisclosedClaims(issuerClaims jwt.MapClaims, disclosures []string) (jwt
 	return out, nil
 }
 
-// VerifyDisclosures checks that each disclosure digest is listed in the credential _sd array.
+// VerifyDisclosures checks that every disclosure is anchored either directly
+// in the credential _sd array or in a nested _sd array exposed by another
+// anchored disclosure. Wallets may send nested disclosures before their
+// containing disclosure, so verification resolves the graph to a fixed point.
 func VerifyDisclosures(issuerClaims jwt.MapClaims, disclosures []string) error {
 	sdAlg, _ := issuerClaims["_sd_alg"].(string)
 
@@ -65,19 +68,61 @@ func VerifyDisclosures(issuerClaims jwt.MapClaims, disclosures []string) error {
 		return fmt.Errorf("credential _sd is empty")
 	}
 
-	seen := make(map[string]struct{}, len(disclosures))
+	available := make(map[string]struct{}, len(sdHashes))
+	for _, digest := range sdHashes {
+		available[digest] = struct{}{}
+	}
+	pending := make(map[string]string, len(disclosures))
 	for _, encoded := range disclosures {
 		digest := disclosureDigest(encoded)
-		if !containsString(sdHashes, digest) {
-			return fmt.Errorf("disclosure digest is not listed in credential _sd")
-		}
-		if _, dup := seen[digest]; dup {
+		if _, dup := pending[digest]; dup {
 			return fmt.Errorf("duplicate disclosure digest")
 		}
-		seen[digest] = struct{}{}
+		pending[digest] = encoded
+	}
+
+	for len(pending) > 0 {
+		progress := false
+		for digest, encoded := range pending {
+			if _, ok := available[digest]; !ok {
+				continue
+			}
+			decoded, err := decodeDisclosure(encoded)
+			if err != nil {
+				return err
+			}
+			collectNestedSDHashes(decoded[2], available)
+			delete(pending, digest)
+			progress = true
+		}
+		if !progress {
+			return fmt.Errorf("disclosure digest is not listed in credential _sd")
+		}
 	}
 
 	return nil
+}
+
+func collectNestedSDHashes(value any, hashes map[string]struct{}) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if raw, ok := typed["_sd"]; ok {
+			if nested, err := stringSliceFromAny(raw); err == nil {
+				for _, digest := range nested {
+					hashes[digest] = struct{}{}
+				}
+			}
+		}
+		for key, child := range typed {
+			if key != "_sd" {
+				collectNestedSDHashes(child, hashes)
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			collectNestedSDHashes(child, hashes)
+		}
+	}
 }
 
 func disclosureDigest(encodedDisclosure string) string {

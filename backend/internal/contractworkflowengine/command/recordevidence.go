@@ -24,12 +24,14 @@ import (
 )
 
 type RecordEvidenceCmd struct {
-	DID        string             `json:"did"`
-	RecordedBy string             `json:"recorded_by"`
-	UpdatedAt  time.Time          `json:"updated_at"`
-	HolderDID  string             `json:"holder_did"`
-	UserRoles  userrole.UserRoles `json:"user_roles"`
-	CauserDID  string             `json:"causer_did"`
+	DID          string             `json:"did"`
+	RecordedBy   string             `json:"recorded_by"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	HolderDID    string             `json:"holder_did"`
+	UserRoles    userrole.UserRoles `json:"user_roles"`
+	CauserDID    string             `json:"causer_did"`
+	EvidenceType string             `json:"evidence_type"`
+	Reference    string             `json:"reference"`
 }
 
 type EvidenceRecorder struct {
@@ -39,11 +41,11 @@ type EvidenceRecorder struct {
 	DIDDocument identity.DIDDocument
 }
 
-func (h *EvidenceRecorder) Handle(ctx context.Context, cmd RecordEvidenceCmd) error {
+func (h *EvidenceRecorder) Handle(ctx context.Context, cmd RecordEvidenceCmd) (time.Time, error) {
 
 	tx, err := h.DB.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("could not start transaction: %w", err)
+		return time.Time{}, fmt.Errorf("could not start transaction: %w", err)
 	}
 	defer func(tx *sqlx.Tx) {
 		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
@@ -53,12 +55,12 @@ func (h *EvidenceRecorder) Handle(ctx context.Context, cmd RecordEvidenceCmd) er
 
 	processData, err := h.CRepo.ReadProcessDataByDID(ctx, tx, cmd.DID)
 	if err != nil {
-		return fmt.Errorf("could not read process data: %w", err)
+		return time.Time{}, fmt.Errorf("could not read process data: %w", err)
 	}
 
 	localPeer, err := h.DIDDocument.GetID()
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 
 	if processData.Origin != localPeer && cmd.CauserDID != processData.Origin {
@@ -69,45 +71,51 @@ func (h *EvidenceRecorder) Handle(ctx context.Context, cmd RecordEvidenceCmd) er
 
 		err := tx.Commit()
 		if err != nil {
-			return fmt.Errorf("could not commit transaction: %w", err)
+			return time.Time{}, fmt.Errorf("could not commit transaction: %w", err)
 		}
 
 		err = remoteaction.RecordEvidence.Execute(ctx, h.DB, h.DIDDocument, processData.Origin, processData.DID, cmd)
 		if err != nil {
-			return err
+			return time.Time{}, err
 		}
 
-		return nil
+		return time.Now().UTC(), nil
 	}
 
 	// Optimistic concurrency: reject if the caller's view of the contract is
 	// older than what's stored (see package doc / ADR-0007).
 	if cmd.UpdatedAt.Unix() < processData.UpdatedAt.Unix() {
 		if localPeer != cmd.CauserDID {
-			return errors.New("contract was updated elsewhere, please force synchronisation and reload")
+			return time.Time{}, errors.New("contract was updated elsewhere, please force synchronisation and reload")
 		}
-		return errors.New("contract was updated elsewhere, please reload")
+		return time.Time{}, errors.New("contract was updated elsewhere, please reload")
 	}
 
 	if processData.State == contractstate.Terminated.String() {
-		return errors.New("current contract state is invalid")
+		return time.Time{}, errors.New("current contract state is invalid")
 	}
 
 	// RecordEvidence never mutates contract state — it only appends an
 	// evidence event to the audit trail.
 
+	recordedAt := time.Now().UTC()
 	evt := contractevents.RecordEvidenceEvent{
 		DID:             cmd.DID,
 		ContractVersion: processData.ContractVersion,
 		RecordedBy:      cmd.RecordedBy,
-		OccurredAt:      time.Now().UTC(),
+		OccurredAt:      recordedAt,
+		EvidenceType:    cmd.EvidenceType,
+		Reference:       cmd.Reference,
 		HolderDID:       cmd.HolderDID,
 		UserRoles:       cmd.UserRoles,
 	}
 	err = event.Create(ctx, tx, evt, componenttype.ContractWorkflowEngine)
 	if err != nil {
-		return fmt.Errorf("could not create event: %w", err)
+		return time.Time{}, fmt.Errorf("could not create event: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, err
+	}
+	return recordedAt, nil
 }

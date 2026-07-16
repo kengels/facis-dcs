@@ -221,11 +221,20 @@ export const auditingService: AuditingService = {
   },
 
   async report(request: AuditReportRequest) {
-    return http.get<ArrayBuffer>('/pac/report', { params: request, responseType: 'arraybuffer' }).then((res) => ({
-      bytes: res.data,
-      contentType: res.headers['content-type'] ?? 'application/octet-stream',
-      filename: `audit-report-${request.scope}.${request.format ?? 'json'}`,
-    }))
+    return http.get<ArrayBuffer>('/pac/report', { params: request, responseType: 'arraybuffer' }).then((res) => {
+      const format = request.format ?? 'json'
+      let reportId: string | undefined
+      if (format === 'json') {
+        const decoded = JSON.parse(new TextDecoder().decode(res.data)) as unknown
+        reportId = isObjectRecord(decoded) ? stringValue(decoded.reportId) : undefined
+      }
+      return {
+        bytes: res.data,
+        contentType: res.headers['content-type'] ?? 'application/octet-stream',
+        filename: `audit-report-${request.scope}.${format}`,
+        reportId,
+      }
+    })
   },
 }
 
@@ -259,4 +268,18 @@ export async function monitorCompliance(): Promise<ComplianceMonitorResult> {
 
 export async function reportIncident(request: IncidentReportRequest): Promise<IncidentReportResult> {
   return http.post<IncidentReportResult>('/pac/incidents', request).then((res) => res.data)
+}
+
+export async function listIncidents(): Promise<IncidentReportResult[]> {
+  return http.get<IncidentReportResult[]>('/pac/incidents').then((res) => res.data)
+}
+
+export async function getIncident(incidentId: string): Promise<IncidentReportResult> {
+  return http.get<IncidentReportResult>(`/pac/incidents/${encodeURIComponent(incidentId)}`).then((res) => res.data)
+}
+
+export async function exportIncident(incidentId: string): Promise<Blob> {
+  return http
+    .get<Blob>(`/pac/incidents/${encodeURIComponent(incidentId)}/export`, { responseType: 'blob' })
+    .then((res) => res.data)
 }

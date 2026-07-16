@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted, type Ref, ref, watch } from 'vue'
 import Pagination from '@/components/Pagination.vue'
 import { useContractTemplatesStore } from '@/stores/contract-templates-store.ts'
 import { useTemplateStateFilterStore } from '@/stores/state-filter-store'
-import { contractTemplateStates } from '@/types/contract-template-state'
+import { contractTemplateStates, TemplateState } from '@/types/contract-template-state'
 import { compareValues } from '@/utils/comparison'
 import TemplateListItem from './TemplateListItem.vue'
 import TemplateListSearch from './TemplateListSearch.vue'
@@ -70,15 +70,21 @@ const sortedTemplates = computed(() => {
 const hasTemplates = computed(() => templates.value.length > 0)
 
 const filteredTemplates = computed(() => {
+  const visibleTemplates = sortedTemplates.value.filter((template) => template.state !== TemplateState.deleted)
   if (stateFilterStore.hasFilters) {
-    return sortedTemplates.value.filter((template) => stateFilterStore.hasFilter(template.state))
+    return visibleTemplates.filter((template) => stateFilterStore.hasFilter(template.state))
   }
-  return sortedTemplates.value
+  return visibleTemplates
 })
 
 const applySearchResult = (searchResult: PartialContractTemplate[] | null) => {
   searchResults.value = searchResult
   currentPage.value = 1
+}
+
+const refreshTemplates = async () => {
+  searchResults.value = null
+  await setPaginatedTemplates()
 }
 
 onUnmounted(() => stateFilterStore.reset())
@@ -102,6 +108,7 @@ onUnmounted(() => stateFilterStore.reset())
       v-for="template in filteredTemplates"
       :key="`${template.did}|${template.document_number}|${template.version}`"
       :template="template"
+      @lifecycle-changed="refreshTemplates"
     />
     <li v-if="filteredTemplates.length < 1" class="px-4">No templates found</li>
   </ul>

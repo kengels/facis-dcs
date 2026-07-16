@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useDcsDraftStore } from '@template-repository/store/dcsDraftStore'
 import { useTemplateEditorUiStore } from '@template-repository/store/templateEditorUiStore'
+import axios from 'axios'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref } from 'vue'
 import { TemplateType } from '@/modules/template-repository/models/contract-template'
@@ -48,35 +49,43 @@ const selectedComponents = computed<ComponentTemplateKey[]>(() =>
   })),
 )
 const showComponentPicker = ref(false)
-const componentSearchQuery = ref('')
+const dependencyReference = ref('')
+const dependencyError = ref<string | null>(null)
+const dependencySaveResult = ref<string | null>(null)
+const dependencySaving = ref(false)
 
 const isSameTemplate = (a: ComponentTemplateKey, b: ComponentTemplateKey) =>
   a.did === b.did && a.version === b.version && a.document_number === b.document_number
-const isSelected = (t: ComponentTemplateKey) => selectedComponents.value.some((s) => isSameTemplate(s, t))
-
-const filteredComponentTemplates = computed(() => {
-  const q = componentSearchQuery.value.toLowerCase()
-  const selectableStates = new Set<string>([TemplateState.approved, TemplateState.published])
-  return allTemplates.value.filter(
-    (t) =>
-      !isSelected(t) &&
-      selectableStates.has(t.state) &&
-      t.template_type === TemplateType.component &&
-      (q === '' || (t.name ?? '').toLowerCase().includes(q) || t.did.toLowerCase().includes(q)),
-  )
-})
 
 const getComponentTemplateName = (item: ComponentTemplateKey) =>
   subTemplateSnapshots.value.find((t) => isSameTemplate(t, item))?.name ??
   allTemplates.value.find((t) => isSameTemplate(t, item))?.name ??
   item.did
 
-const addComponentTemplate = async (template: { did: string; version: number; document_number?: string }) => {
-  if (isSelected(template)) return
-  await contractTemplateService.retrieveById(template).then((fullTemplate) => {
-    if (fullTemplate) store.addSubTemplateSnapshot(fullTemplate)
-  })
-  componentSearchQuery.value = ''
+const addComponentTemplate = async () => {
+  if (!store.did || dependencySaving.value) return
+  dependencyError.value = null
+  dependencySaveResult.value = null
+  dependencySaving.value = true
+  try {
+    const snapshot = await contractTemplateService.validateDependency({
+      template_did: store.did,
+      reference_did: dependencyReference.value,
+    })
+    store.addSubTemplateSnapshot(snapshot)
+    dependencySaveResult.value = 'saved'
+    dependencyReference.value = ''
+  } catch (error: unknown) {
+    dependencySaveResult.value = 'blocked'
+    if (axios.isAxiosError(error)) {
+      const payload = error.response?.data as { message?: string; name?: string } | undefined
+      dependencyError.value = payload?.message ?? payload?.name ?? 'Dependency validation failed'
+    } else {
+      dependencyError.value = error instanceof Error ? error.message : 'Dependency validation failed'
+    }
+  } finally {
+    dependencySaving.value = false
+  }
 }
 
 const isComponentReferenced = (item: ComponentTemplateKey): boolean => {
@@ -195,59 +204,79 @@ const removeComponentTemplate = (item: ComponentTemplateKey) => {
       <!-- Collapsible picker -->
       <div v-show="showComponentPicker" class="mt-1">
         <input
-          v-model="componentSearchQuery"
+          v-model="dependencyReference"
           data-test-id="template-component-reference"
+          list="template-component-reference-options"
           class="input-bordered input input-sm w-full"
-          placeholder="Search templates…"
+          placeholder="Template DID"
         />
-
-        <ul class="menu mt-1 max-h-48 w-full flex-nowrap overflow-y-auto menu-sm rounded-box bg-base-200">
-          <li v-if="!filteredComponentTemplates.length">
-            <span class="pointer-events-none text-xs text-base-content/40 italic">
-              {{ componentSearchQuery ? 'No results' : 'All component templates already added' }}
-            </span>
-          </li>
-          <li v-for="t in filteredComponentTemplates" :key="`${t.did}-${t.version}-${t.document_number}`">
-            <button
-              type="button"
-              class="group flex flex-col items-start gap-0"
-              data-test-id="template-component-save"
-              :data-test-key="t.did"
-              @click="addComponentTemplate(t)"
-            >
-              <span class="text-sm font-medium">{{ t.name }}</span>
-              <span
-                class="max-h-0 overflow-hidden text-xs text-base-content/50 italic transition-all duration-200 ease-in-out group-hover:max-h-12"
-              >
-                {{ t.description }}
-              </span>
-            </button>
-          </li>
-        </ul>
+        <datalist id="template-component-reference-options">
+          <option
+            v-for="template in allTemplates.filter(
+              (item) =>
+                item.template_type === TemplateType.component &&
+                (item.state === TemplateState.approved || item.state === TemplateState.published),
+            )"
+            :key="template.did"
+            :value="template.did"
+          >
+            {{ template.name }}
+          </option>
+        </datalist>
+        <button
+          type="button"
+          class="btn mt-2 btn-sm btn-primary"
+          data-test-id="template-component-save"
+          :disabled="!store.did || dependencySaving"
+          @click="addComponentTemplate"
+        >
+          {{ dependencySaving ? 'Validating…' : 'Save dependency' }}
+        </button>
+        <p v-if="dependencyError" data-test-id="template-dependency-error" class="mt-2 text-sm text-error">
+          {{ dependencyError }}
+        </p>
+        <p
+          v-if="dependencySaveResult"
+          data-test-id="template-save-result"
+          class="mt-2 text-sm"
+          :class="dependencySaveResult === 'blocked' ? 'text-error' : 'text-success'"
+        >
+          {{ dependencySaveResult }}
+        </p>
       </div>
 
       <!-- Selected templates (always visible) -->
-      <div v-if="selectedComponents.length" class="mt-3 flex flex-wrap gap-2">
-        <div
-          v-for="item in selectedComponents"
-          :key="`${item.did}-${item.version}-${item.document_number}`"
-          data-test-id="template-hierarchy-node"
-          :data-test-key="item.did"
-          class="badge gap-1 badge-outline py-3 badge-primary"
-        >
-          <span>{{ getComponentTemplateName(item) }}</span>
-          <button
-            type="button"
-            :disabled="isComponentReferenced(item) || !uiStore.isTemplateEditable"
-            :title="isComponentReferenced(item) ? 'Cannot remove: used in document' : undefined"
-            class="text-error transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
-            @click="removeComponentTemplate(item)"
+      <div data-test-id="template-hierarchy-tree" class="mt-3">
+        <div data-test-id="template-hierarchy-dependencies" class="flex flex-wrap gap-2">
+          <div
+            v-if="store.did"
+            data-test-id="template-hierarchy-node"
+            :data-test-key="store.did"
+            class="badge gap-1 badge-outline py-3 badge-secondary"
           >
-            ✕
-          </button>
+            <span>{{ store.name || store.did }}</span>
+          </div>
+          <div
+            v-for="item in selectedComponents"
+            :key="`${item.did}-${item.version}-${item.document_number}`"
+            data-test-id="template-hierarchy-node"
+            :data-test-key="item.did"
+            class="badge gap-1 badge-outline py-3 badge-primary"
+          >
+            <span>{{ getComponentTemplateName(item) }}</span>
+            <button
+              type="button"
+              :disabled="isComponentReferenced(item) || !uiStore.isTemplateEditable"
+              :title="isComponentReferenced(item) ? 'Cannot remove: used in document' : undefined"
+              class="text-error transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
+              @click="removeComponentTemplate(item)"
+            >
+              ✕
+            </button>
+          </div>
+          <p v-if="!selectedComponents.length" class="mt-2 fieldset-label">No component templates selected yet.</p>
         </div>
       </div>
-      <p v-else class="mt-2 fieldset-label">No component templates selected yet.</p>
     </fieldset>
   </div>
 </template>

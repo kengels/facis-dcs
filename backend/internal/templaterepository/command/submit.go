@@ -95,9 +95,28 @@ func (h *Submitter) Handle(ctx context.Context, cmd SubmitCmd) error {
 			return errors.New("invalid user permission")
 		}
 
-		err = createTasks(ctx, tx, h.RTRepo, h.ATRepo, cmd)
+		reviewTasksExist, err := h.RTRepo.TaskExist(ctx, tx, cmd.DID)
 		if err != nil {
-			return err
+			return fmt.Errorf("could not inspect review tasks: %w", err)
+		}
+		approvalTasksExist, err := h.ATRepo.TaskExists(ctx, tx, cmd.DID)
+		if err != nil {
+			return fmt.Errorf("could not inspect approval tasks: %w", err)
+		}
+		switch {
+		case reviewTasksExist && approvalTasksExist:
+			if err = h.RTRepo.ReopenTasks(ctx, tx, cmd.DID); err != nil {
+				return fmt.Errorf("could not reopen review tasks: %w", err)
+			}
+			if err = h.ATRepo.ReopenTasks(ctx, tx, cmd.DID); err != nil {
+				return fmt.Errorf("could not reopen approval tasks: %w", err)
+			}
+		case !reviewTasksExist && !approvalTasksExist:
+			if err = createTasks(ctx, tx, h.RTRepo, h.ATRepo, cmd); err != nil {
+				return err
+			}
+		default:
+			return errors.New("inconsistent template review and approval tasks")
 		}
 
 		nextTemplateState = contracttemplatestate.Submitted
@@ -165,7 +184,10 @@ func (h *Submitter) Handle(ctx context.Context, cmd SubmitCmd) error {
 				if err != nil {
 					return err
 				}
-				nextTemplateState = contracttemplatestate.Rejected
+				// A reviewer return is not a terminal rejection. It restores the
+				// creator-editable lifecycle state while the SubmitEvent retains
+				// the review comments and the previous/new-state evidence.
+				nextTemplateState = contracttemplatestate.Draft
 			}
 		} else {
 			return errors.New("action flag is missing")

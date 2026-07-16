@@ -631,6 +631,8 @@ type RecordEvidenceEvent struct {
 	RecordedBy      string             `json:"recorded_by"`
 	OccurredAt      time.Time          `json:"occurred_at"`
 	UserRoles       userrole.UserRoles `json:"user_roles"`
+	EvidenceType    string             `json:"evidence_type"`
+	Reference       string             `json:"reference"`
 }
 
 // EventType implements the Event interface.

@@ -13,6 +13,8 @@ import { useAuthStore } from '@/stores/auth-store'
 import { useAuthTokenStore } from '@/stores/auth-token-store'
 import type { AuthenticationService } from '@/models/services/authentication-service'
 
+let refreshInFlight: Promise<boolean> | null = null
+
 export const authenticationService: AuthenticationService = {
   async login() {
     return authHttp
@@ -64,7 +66,7 @@ export const authenticationService: AuthenticationService = {
   },
 
   async refresh() {
-    return authHttp
+    refreshInFlight ??= authHttp
       .post<AuthCallbackResponse>('/auth/refresh')
       .then((res) => {
         const authTokenStore = useAuthTokenStore()
@@ -84,6 +86,10 @@ export const authenticationService: AuthenticationService = {
         }
         return false
       })
+      .finally(() => {
+        refreshInFlight = null
+      })
+    return refreshInFlight
   },
 
   logout() {

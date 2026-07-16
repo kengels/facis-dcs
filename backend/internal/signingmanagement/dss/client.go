@@ -55,6 +55,16 @@ type Report struct {
 	SubIndication string
 }
 
+// Passed reports whether DSS returned ETSI EN 319 102-1 TOTAL-PASSED.
+// DSS versions use both hyphens and underscores in their JSON vocabulary.
+func (r *Report) Passed() bool {
+	if r == nil {
+		return false
+	}
+	indication := strings.ReplaceAll(strings.TrimSpace(r.Indication), "_", "-")
+	return strings.EqualFold(indication, "TOTAL-PASSED")
+}
+
 // ValidatePDF submits pdf to POST {base}/services/rest/validation/validateSignature
 // and returns the simple report's indication. Any transport or protocol
 // failure is an error — the caller treats a configured DSS as required.

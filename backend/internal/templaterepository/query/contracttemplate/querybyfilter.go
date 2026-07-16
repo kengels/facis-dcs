@@ -43,6 +43,7 @@ type GetAllMetadataByFilterResult struct {
 	TemplateType   contracttemplatetype.ContractTemplateType
 	Name           *string
 	Description    *string
+	CreatedBy      string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	MetaData       datatype.JSON
@@ -128,6 +129,7 @@ func (h *GetAllMetaDataByFilterHandler) Handle(ctx context.Context, query GetAll
 			TemplateType:   ctType,
 			Name:           data.Name,
 			Description:    data.Description,
+			CreatedBy:      data.CreatedBy,
 			CreatedAt:      data.CreatedAt,
 			UpdatedAt:      data.UpdatedAt,
 		}

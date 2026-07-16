@@ -515,7 +515,7 @@ func (s *contractWorkflowEnginesrvc) RetrieveByID(ctx context.Context, req *cont
 				ContractVersion: item.ContractVersion,
 				ChangeRequest:   item.ChangeRequest,
 				CreatedBy:       item.CreatedBy,
-				CreatedAt:       item.CreatedAt.String(),
+				CreatedAt:       formatAPITimestamp(item.CreatedAt),
 			}
 			negotiations[item.ID] = negotiation
 		}
@@ -1018,24 +1018,29 @@ func (s *contractWorkflowEnginesrvc) Store(ctx context.Context, req *contractwor
 	}
 
 	cmd := command.RecordEvidenceCmd{
-		DID:        req.Did,
-		RecordedBy: middleware.GetParticipantID(ctx),
-		HolderDID:  middleware.GetHolderDID(ctx),
-		UserRoles:  middleware.GetUserRoles(ctx),
-		UpdatedAt:  updatedAt,
-		CauserDID:  localPeer,
+		DID:          req.Did,
+		RecordedBy:   middleware.GetParticipantID(ctx),
+		HolderDID:    middleware.GetHolderDID(ctx),
+		UserRoles:    middleware.GetUserRoles(ctx),
+		UpdatedAt:    updatedAt,
+		CauserDID:    localPeer,
+		EvidenceType: req.EvidenceType,
+		Reference:    req.Reference,
 	}
 	handler := command.EvidenceRecorder{
-		DB:    s.DB,
-		CRepo: s.CRepo,
+		DB:          s.DB,
+		CRepo:       s.CRepo,
+		SRepo:       s.SRepo,
+		DIDDocument: s.DIDDocument,
 	}
-	err = handler.Handle(ctx, cmd)
+	recordedAt, err := handler.Handle(ctx, cmd)
 	if err != nil {
 		return nil, contractworkflowengine.MakeInternalError(err)
 	}
 
 	return &contractworkflowengine.ContractStoreResponse{
-		Did: req.Did,
+		Did: req.Did, EvidenceType: req.EvidenceType, Reference: req.Reference,
+		RecordedAt: recordedAt.Format(time.RFC3339Nano),
 	}, nil
 }
 
@@ -1084,7 +1089,8 @@ func (s *contractWorkflowEnginesrvc) Terminate(ctx context.Context, req *contrac
 	}
 
 	return &contractworkflowengine.ContractTerminateResponse{
-		Did: req.Did,
+		Did:   req.Did,
+		State: contractstate.Terminated.String(),
 	}, nil
 }
 
@@ -1154,6 +1160,32 @@ func (s *contractWorkflowEnginesrvc) Renew(ctx context.Context, req *contractwor
 		RenewsDid:             req.Did,
 		RenewsContractVersion: result.OriginalContractVersion,
 	}, nil
+}
+
+func (s *contractWorkflowEnginesrvc) RetrieveRenewals(ctx context.Context, req *contractworkflowengine.RetrieveRenewalsPayload) ([]*contractworkflowengine.ContractRenewResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
+	defer cancel()
+	tx, err := s.DB.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, contractworkflowengine.MakeInternalError(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	relations, err := s.CRepo.ReadRenewalRelations(ctx, tx, req.Did)
+	if err != nil {
+		return nil, contractworkflowengine.MakeInternalError(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, contractworkflowengine.MakeInternalError(err)
+	}
+	result := make([]*contractworkflowengine.ContractRenewResponse, 0, len(relations))
+	for _, relation := range relations {
+		result = append(result, &contractworkflowengine.ContractRenewResponse{
+			Did:                   relation.RenewalDID,
+			RenewsDid:             relation.OriginalDID,
+			RenewsContractVersion: relation.OriginalContractVersion,
+		})
+	}
+	return result, nil
 }
 
 func (s *contractWorkflowEnginesrvc) Offer(ctx context.Context, req *contractworkflowengine.ContractOfferRequest) (res *contractworkflowengine.ContractOfferResponse, err error) {
@@ -1274,7 +1306,7 @@ func (s *contractWorkflowEnginesrvc) Audit(ctx context.Context, req *contractwor
 			EventType:        entry.EventType,
 			EventData:        entry.EventData,
 			Did:              entry.DID,
-			CreatedAt:        entry.CreatedAt.String(),
+			CreatedAt:        formatAPITimestamp(entry.CreatedAt),
 			GlobalLogPredCid: entry.GlobalLogPredCID,
 			ResLogPredCid:    entry.ResLogPredCID,
 		})

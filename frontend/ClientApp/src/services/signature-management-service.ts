@@ -17,6 +17,10 @@ export interface SigningTask {
   signer: string
   field_name: string
   created_at: string
+  order: number
+  dependency?: string
+  deadline?: string
+  signed_at?: string
 }
 
 export interface SigningDashboardData {
@@ -41,16 +45,20 @@ export interface SignatureVerifyResult {
   base_pdf_hash?: string
   sig_count: number
   findings?: string[]
+  integrity_status: 'VALID' | 'INVALID'
+  envelope_status: 'VALID' | 'INVALID'
 }
 
 export interface SignatureValidateResult {
   did: string
   findings?: string[]
+  status: 'VALID' | 'INVALID'
 }
 
 export interface SignatureComplianceResult {
   did: string
   findings?: string[]
+  status: 'COMPLIANT' | 'NON_COMPLIANT'
 }
 
 export interface SignatureAuditEntry {
@@ -71,6 +79,7 @@ export interface SignatureViewItem {
   status: string
   signed_at?: string
   revoked_at?: string
+  revocation_reason?: string
   format: string
 }
 
@@ -79,6 +88,8 @@ export interface SignatureView {
   contract_state: string
   signatures: SignatureViewItem[]
   integrity_findings: string[]
+  integrity_status: 'VALID' | 'INVALID'
+  can_revoke: boolean
 }
 
 export type CeremonyStatus = 'pending' | 'verified' | 'expired' | 'failed'

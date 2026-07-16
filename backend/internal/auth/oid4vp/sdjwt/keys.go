@@ -80,16 +80,6 @@ func ResolveIssuerVerificationKey(cfg TrustConfig, token *jwt.Token) (any, error
 	return verificationKeyFromTrustedJWKS(jwksRaw, token)
 }
 
-// ResolveIssuerVerificationKeyForPID resolves the issuer key for PID credentials signed with x5c.
-func ResolveIssuerVerificationKeyForPID(token *jwt.Token) (any, error) {
-	rawX5C, ok := token.Header["x5c"]
-	if !ok {
-		return nil, fmt.Errorf("pid credential jwt requires x5c")
-	}
-
-	return verificationKeyFromX5C(rawX5C)
-}
-
 func verificationKeyFromX5C(raw any) (any, error) {
 	certs, ok := raw.([]any)
 	if !ok || len(certs) == 0 {

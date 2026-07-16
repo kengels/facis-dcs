@@ -1,9 +1,9 @@
 // Package pidverify re-verifies a PID SD-JWT VC + KB-JWT presentation for a
 // signing ceremony (UC-04-02, UC-04-03). It proves the presentation is
 // internally consistent: the holder binding key (cnf.jwk) signs the KB-JWT, the
-// KB-JWT carries the correct sd_hash for the disclosed credential, its audience
-// is the ceremony audience, and the credential subject equals the did:jwk of the
-// holder key.
+// KB-JWT carries the correct sd_hash for the disclosed credential and its
+// audience is the ceremony audience. The signer DID is derived from cnf.jwk;
+// when a credential also declares sub, it must identify that same holder key.
 package pidverify
 
 import (
@@ -22,6 +22,19 @@ const Audience = "dcs-signature-ceremony"
 // Verify validates the presentation and returns the signer DID (credential
 // subject) and the KB-JWT sd_hash.
 func Verify(vpToken string) (signerDID, sdHash string, err error) {
+	return verify(vpToken, "")
+}
+
+// VerifyForNonce additionally binds a live presentation to the nonce issued
+// for the signing ceremony.
+func VerifyForNonce(vpToken, expectedNonce string) (signerDID, sdHash string, err error) {
+	if strings.TrimSpace(expectedNonce) == "" {
+		return "", "", fmt.Errorf("expected nonce is required")
+	}
+	return verify(vpToken, expectedNonce)
+}
+
+func verify(vpToken, expectedNonce string) (signerDID, sdHash string, err error) {
 	presentation, err := sdjwt.ParsePresentation(vpToken)
 	if err != nil {
 		return "", "", err
@@ -38,16 +51,14 @@ func Verify(vpToken string) (signerDID, sdHash string, err error) {
 	}
 	sub, _ := issuerClaims["sub"].(string)
 	sub = strings.TrimSpace(sub)
-	if sub == "" {
-		return "", "", fmt.Errorf("credential missing sub")
-	}
 	expectedSub, err := sdjwt.DIDJWKFromPublicJWK(cnfJWK)
 	if err != nil {
 		return "", "", fmt.Errorf("credential cnf.jwk: %w", err)
 	}
-	if sub != expectedSub {
+	if sub != "" && sub != expectedSub {
 		return "", "", fmt.Errorf("credential sub does not match cnf.jwk holder binding")
 	}
+	sub = expectedSub
 
 	// The ceremony webhook does not carry the wallet nonce, so KB verification
 	// checks the holder signature, sd_hash and audience against the nonce
@@ -55,6 +66,9 @@ func Verify(vpToken string) (signerDID, sdHash string, err error) {
 	kbNonce, err := kbJWTNonce(presentation.KBJWT)
 	if err != nil {
 		return "", "", err
+	}
+	if expectedNonce != "" && kbNonce != expectedNonce {
+		return "", "", fmt.Errorf("kb jwt nonce does not match signing ceremony")
 	}
 	if err := sdjwt.VerifyKB(presentation.KBJWT, presentation.SDHash, cnfJWK, sub, kbNonce, Audience); err != nil {
 		return "", "", err

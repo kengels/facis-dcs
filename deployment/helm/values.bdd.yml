@@ -276,6 +276,7 @@ signing:
   # In-cluster dev TSA (orce chart localTSA): verify tokens against the
   # provisioned dev TSA cert instead of the embedded production cert.
   tsaTrustCertSecret: "dcs-orce-tsa-material"
+  eudiploWebhookSecret: "bdd-eudiplo-webhook-secret"
 
   # did:web host must be reachable both from outside the cluster (host-side
   # BDD steps resolving via environment.py's *.localhost fallback) and from

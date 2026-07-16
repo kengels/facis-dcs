@@ -39,6 +39,33 @@ var ArchiveAnnotationResponse = Type("ArchiveAnnotationResponse", func() {
 	Required("did", "summary")
 })
 
+var ArchiveDashboardRecentAction = Type("ArchiveDashboardRecentAction", func() {
+	Description("A persisted archive-domain action shown by the archive dashboard")
+	Attribute("id", Int64, "Persistent outbox event identifier")
+	Attribute("did", String, "Affected contract DID")
+	Attribute("event_type", String, "Archive event type")
+	Attribute("occurred_at", String, "Event creation time (RFC3339)")
+	Required("id", "did", "event_type", "occurred_at")
+})
+
+var ArchiveDashboardComplianceSummary = Type("ArchiveDashboardComplianceSummary", func() {
+	Description("Server-derived archive compliance counts")
+	Attribute("archive_entries", Int, "Number of non-deleted archive entries")
+	Attribute("entries_with_proof", Int, "Number of non-deleted entries with a content hash and snapshot CID")
+	Attribute("entries_without_proof", Int, "Number of non-deleted entries lacking a content hash or snapshot CID")
+	Required("archive_entries", "entries_with_proof", "entries_without_proof")
+})
+
+var ArchiveDashboardResponse = Type("ArchiveDashboardResponse", func() {
+	Description("Authoritative server read model for the contract archive dashboard")
+	Attribute("recent_actions", ArrayOfRequired(ArchiveDashboardRecentAction), "Persisted archive actions, newest first")
+	Attribute("expiring_contracts", ArrayOfRequired(ContractItem), "Archived contracts with a future expiration date, soonest first")
+	Attribute("compliance", ArchiveDashboardComplianceSummary, "Server-derived archive proof coverage")
+	Attribute("source", String, "Origin of the dashboard values")
+	Attribute("generated_at", String, "Read-model generation time (RFC3339)")
+	Required("recent_actions", "expiring_contracts", "compliance", "source", "generated_at")
+})
+
 // Contract Storage & Archive Service  (/archive/...)
 var _ = Service("ContractStorageArchive", func() {
 	Description("Contract Storage & Archive APIs (/archive/...)")
@@ -94,6 +121,25 @@ var _ = Service("ContractStorageArchive", func() {
 			Param("tag")
 			Response(StatusOK)
 			Response("bad_request", StatusBadRequest)
+			Response("internal_error", StatusInternalServerError)
+		})
+	})
+
+	Method("dashboard", func() {
+		Description("Return authoritative archive dashboard data derived from persisted archive entries and archive audit events.")
+		Meta("dcs:requirements", "DCS-FR-CSA-21", "DCS-IR-CSA-01")
+		Meta("dcs:ui", "Archive Manager Dashboard")
+		Meta("dcs:csa:components", "Signed Contract Archive")
+		Security(JWTAuth, func() {
+			Scope("Archive Manager")
+			Scope("Contract Observer")
+		})
+		Payload(ArchiveRetrieveRequest)
+		Result(ArchiveDashboardResponse)
+		Error("internal_error", ErrorResult, "Internal server error")
+		HTTP(func() {
+			GET("/archive/dashboard")
+			Response(StatusOK)
 			Response("internal_error", StatusInternalServerError)
 		})
 	})

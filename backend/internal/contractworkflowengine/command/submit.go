@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"digital-contracting-service/internal/base/datatype"
@@ -122,10 +123,9 @@ func (h *Submitter) Handle(ctx context.Context, cmd SubmitCmd) error {
 	// contract's current state (state pattern via if/else, not polymorphism).
 	// See docs/backend architecture doc, section "Contract Workflow Engine".
 	var nextState contractstate.ContractState
-	// Draft and Offered submit identically: both start the negotiation round
-	// (see transition.go's Draft -> Negotiation and Offered -> Negotiation
-	// edges). Submitting an already-offered contract simply mirrors submitting
-	// a draft.
+	// Draft and Offered share assignment/task preparation. Negotiation is an
+	// optional stage: contracts with negotiators enter NEGOTIATION, while
+	// contracts without negotiators proceed directly to SUBMITTED review.
 	if processData.State == contractstate.Draft.String() || processData.State == contractstate.Offered.String() {
 
 		if !cmd.UserRoles.HasRoles(userrole.ContractCreator) {
@@ -137,18 +137,6 @@ func (h *Submitter) Handle(ctx context.Context, cmd SubmitCmd) error {
 			return errors.New("invalid participant")
 		}
 
-		if len(cmd.Reviewers) == 0 {
-			return errors.New("no reviewers provided")
-		}
-
-		if len(cmd.Negotiators) == 0 {
-			return errors.New("no negotiators provided")
-		}
-
-		if len(cmd.Approvers) == 0 {
-			return errors.New("no approvers provided")
-		}
-
 		contractData, err := h.contractDataForSemanticValidation(ctx, tx, cmd)
 		if err != nil {
 			return err
@@ -157,28 +145,20 @@ func (h *Submitter) Handle(ctx context.Context, cmd SubmitCmd) error {
 			return fmt.Errorf("contract semantic validation failed: %w", err)
 		}
 
-		resp := db.Responsible{
-			// Responsible.Creator is the ORIGIN PEER DID (see create.go,
-			// db.Responsible.GetUniqueResponsibleList treating it as a
-			// federation peer), not the human/org display name — using
-			// processData.CreatedBy here silently broke every subsequent
-			// PostSync broadcast for this contract, since a non-DID string
-			// fails CheckForUntrustedPeers and aborts the whole delivery.
-			Creator:     processData.Origin,
-			Reviewers:   cmd.Reviewers,
-			Approvers:   cmd.Approvers,
-			Negotiators: cmd.Negotiators,
+		resp, targetState, err := h.prepareInitialSubmitTasks(ctx, tx, processData, cmd)
+		if err != nil {
+			return err
 		}
 		updateData := db.ContractUpdateData{
 			DID:         cmd.DID,
-			Responsible: &resp,
+			Responsible: resp,
 		}
 		err = h.CRepo.Update(ctx, tx, updateData)
 		if err != nil {
 			return fmt.Errorf("could not update contract: %w", err)
 		}
 
-		nextState = contractstate.Negotiation
+		nextState = targetState
 
 	} else if processData.State == contractstate.Rejected.String() {
 
@@ -409,6 +389,128 @@ func (h *Submitter) Handle(ctx context.Context, cmd SubmitCmd) error {
 	}
 
 	return tx.Commit()
+}
+
+func uniqueAssignees(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		assignee := strings.TrimSpace(value)
+		if assignee == "" {
+			continue
+		}
+		if _, exists := seen[assignee]; exists {
+			continue
+		}
+		seen[assignee] = struct{}{}
+		result = append(result, assignee)
+	}
+	return result
+}
+
+func (h *Submitter) prepareInitialSubmitTasks(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	processData *db.ContractProcessData,
+	cmd SubmitCmd,
+) (*db.Responsible, contractstate.ContractState, error) {
+	reviewers := uniqueAssignees(cmd.Reviewers)
+	approvers := uniqueAssignees(cmd.Approvers)
+	negotiators := uniqueAssignees(cmd.Negotiators)
+	if len(reviewers) == 0 {
+		return nil, "", errors.New("no reviewers provided")
+	}
+	if len(approvers) == 0 {
+		return nil, "", errors.New("no approvers provided")
+	}
+
+	if err := h.ensureSubmitTasks(ctx, tx, cmd.DID, cmd.SubmittedBy, processData.ContractVersion, reviewers, approvers, negotiators); err != nil {
+		return nil, "", err
+	}
+
+	responsible := &db.Responsible{
+		// Responsible.Creator is the ORIGIN PEER DID, not the human actor.
+		Creator:     processData.Origin,
+		Reviewers:   reviewers,
+		Approvers:   approvers,
+		Negotiators: negotiators,
+	}
+	if len(negotiators) == 0 {
+		return responsible, contractstate.Submitted, nil
+	}
+	return responsible, contractstate.Negotiation, nil
+}
+
+func (h *Submitter) ensureSubmitTasks(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	did string,
+	createdBy string,
+	contractVersion int,
+	reviewers []string,
+	approvers []string,
+	negotiators []string,
+) error {
+	existingReviewTasks, err := h.RTRepo.ReadAllByDID(ctx, tx, did)
+	if err != nil {
+		return fmt.Errorf("could not read review tasks: %w", err)
+	}
+	existingReviewers := make(map[string]struct{}, len(existingReviewTasks))
+	for _, task := range existingReviewTasks {
+		existingReviewers[task.Reviewer] = struct{}{}
+	}
+	for _, reviewer := range reviewers {
+		if _, exists := existingReviewers[reviewer]; exists {
+			continue
+		}
+		if _, err := h.RTRepo.Create(ctx, tx, db.ReviewTaskData{
+			DID: did, Reviewer: reviewer, State: reviewtaskstate.Open.String(), CreatedBy: createdBy, ContractVersion: contractVersion,
+		}); err != nil {
+			return fmt.Errorf("could not create review task: %w", err)
+		}
+		existingReviewers[reviewer] = struct{}{}
+	}
+
+	existingApprovalTasks, err := h.ATRepo.ReadAllByDID(ctx, tx, did)
+	if err != nil {
+		return fmt.Errorf("could not read approval tasks: %w", err)
+	}
+	existingApprovers := make(map[string]struct{}, len(existingApprovalTasks))
+	for _, task := range existingApprovalTasks {
+		existingApprovers[task.Approver] = struct{}{}
+	}
+	for _, approver := range approvers {
+		if _, exists := existingApprovers[approver]; exists {
+			continue
+		}
+		if _, err := h.ATRepo.Create(ctx, tx, db.ApprovalTaskData{
+			DID: did, Approver: approver, State: reviewtaskstate.Open.String(), CreatedBy: createdBy,
+		}); err != nil {
+			return fmt.Errorf("could not create approval task: %w", err)
+		}
+		existingApprovers[approver] = struct{}{}
+	}
+
+	existingNegotiationTasks, err := h.NTRepo.ReadAllByDID(ctx, tx, did)
+	if err != nil {
+		return fmt.Errorf("could not read negotiation tasks: %w", err)
+	}
+	existingNegotiators := make(map[string]struct{}, len(existingNegotiationTasks))
+	for _, task := range existingNegotiationTasks {
+		existingNegotiators[task.Negotiator] = struct{}{}
+	}
+	for _, negotiator := range negotiators {
+		if _, exists := existingNegotiators[negotiator]; exists {
+			continue
+		}
+		if _, err := h.NTRepo.Create(ctx, tx, db.NegotiationTaskData{
+			DID: did, Negotiator: negotiator, State: negotiationtaskstate.Open.String(), CreatedBy: createdBy,
+		}); err != nil {
+			return fmt.Errorf("could not create negotiation task: %w", err)
+		}
+		existingNegotiators[negotiator] = struct{}{}
+	}
+	return nil
 }
 
 func (h *Submitter) contractDataForSemanticValidation(ctx context.Context, tx *sqlx.Tx, cmd SubmitCmd) (*datatype.JSON, error) {

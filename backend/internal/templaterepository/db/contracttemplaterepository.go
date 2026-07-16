@@ -75,7 +75,7 @@ type ContractTemplateHistory struct {
 	CreatedAt      time.Time      `db:"created_at"`
 	UpdatedAt      time.Time      `db:"updated_at"`
 	TemplateData   *datatype.JSON `db:"template_data"`
-	BaseTemplate   *string        `json:"base_template"`
+	BaseTemplate   *string        `db:"base_template" json:"base_template"`
 }
 
 type SearchValues struct {

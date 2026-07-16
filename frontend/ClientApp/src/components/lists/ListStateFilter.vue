@@ -94,6 +94,7 @@ const isSelected = (type: FilterMap[typeof props.storeType]) => {
       <li
         v-for="filter in shownFilters"
         :key="filter"
+        :data-test-id="dataTestId ? `${dataTestId}-option` : undefined"
         :data-test-key="filter"
         class="flex justify-between transition-colors"
         @click="setFilter(filter)"

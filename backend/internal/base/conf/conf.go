@@ -36,6 +36,10 @@ func GlobalAuditTrailName() string {
 	return "GLOBAL_AUDIT_TRAIL"
 }
 
+func ArchiveDashboardRecentActionsLimit() int {
+	return 50
+}
+
 func LoginAttemptsThresholdInDuration() int {
 	return 5
 }

@@ -15,7 +15,6 @@ cleanup() {
 
 trap cleanup EXIT
 
-: "${VENV_PATH:?VENV_PATH is required}"
 : "${FEATURES_PATH:?FEATURES_PATH is required}"
 : "${KUBECTL_BIN:?KUBECTL_BIN is required}"
 : "${K8S_NAMESPACE:?K8S_NAMESPACE is required}"
@@ -297,16 +296,9 @@ until orce_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BDD_ORCE_TARG
 done
 echo "ORCE contract-target flow is reachable (HTTP $orce_code); BDD_ORCE_TARGET_URL=$BDD_ORCE_TARGET_URL"
 
-source "$VENV_PATH/bin/activate"
 export BDD_DCS_BASE_URL
 
-echo "Checking statuslist for BDD at $STATUSLIST_SERVICE_URL"
-python "$PWD/scripts/ensure_statuslist_for_bdd.py"
-
 export DATABASE_URL="host=localhost port=5432 user=dcs password=dcs dbname=dcs sslmode=disable"
-
-# Canonical bdd-executor integration requires the package in the active environment.
-python -c 'import eu.xfsc.bdd.core' >/dev/null
 
 EXTRA_ARGS=()
 if [[ -n "${ARG_BDD:-}" ]]; then
@@ -322,7 +314,62 @@ fi
 
 echo "Running BDD suite via bdd-executor environment"
 cd "$PROJECT_ROOT"
-"$VENV_PATH/bin/coverage" run --append -m behave "${JUNIT_ARGS[@]}" "$FEATURES_PATH" "${EXTRA_ARGS[@]}"
+if [[ -n "${BDD_PLAYWRIGHT_IMAGE:-}" ]]; then
+  REPORTS_JUNIT_DIR="$BDD_UI_REPORT_DIR/junit"
+  KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/config}"
+  if [[ ! -f "$KUBECONFIG_PATH" ]]; then
+    echo "Kubeconfig not found at $KUBECONFIG_PATH" >&2
+    exit 1
+  fi
+
+  CONTAINER_ENV_ARGS=()
+  while IFS='=' read -r name _; do
+    CONTAINER_ENV_ARGS+=(--env "$name")
+  done < <(env | sed -n 's/^\(BDD_[A-Z0-9_]*\)=.*/\1=/p')
+
+  : "${KIND_CLUSTER_NAME:?KIND_CLUSTER_NAME is required for Playwright runs}"
+  KIND_CONTROL_PLANE="${KIND_CLUSTER_NAME}-control-plane"
+  TRAEFIK_NODE_PORT=$("$KUBECTL_BIN" -n kube-system get service traefik \
+    -o jsonpath='{.spec.ports[?(@.port==18080)].nodePort}')
+  if [[ -z "$TRAEFIK_NODE_PORT" ]]; then
+    echo "Traefik service has no NodePort for BDD ingress port 18080" >&2
+    exit 1
+  fi
+
+  docker run --rm --network "${BDD_DOCKER_NETWORK:-kind}" --ipc host \
+    --add-host dcs-a.localhost:127.0.0.1 \
+    --add-host dcs-b.localhost:127.0.0.1 \
+    --user "$(id -u):$(id -g)" \
+    --env HOME=/tmp \
+    --env DATABASE_URL="host=localhost port=5432 user=dcs password=dcs dbname=dcs sslmode=disable" \
+    --env STATUSLIST_SERVICE_URL \
+    --env PROJECT_ROOT \
+    --env FEATURES_PATH \
+    --env ARG_BDD \
+    --env ARG_BDD_JUNIT \
+    --env KUBECONFIG=/tmp/kubeconfig \
+    --env K8S_NAMESPACE="$K8S_NAMESPACE" \
+    --env DCS_SERVICE="$DCS_SERVICE" \
+    --env LOCAL_FORWARD_PORT="$LOCAL_FORWARD_PORT" \
+    --env SERVICE_PORT="$SERVICE_PORT" \
+    --env ORCE_SERVICE="$ORCE_SERVICE" \
+    --env ORCE_LOCAL_FORWARD_PORT="$ORCE_LOCAL_FORWARD_PORT" \
+    --env BDD_KIND_CONTROL_PLANE="$KIND_CONTROL_PLANE" \
+    --env BDD_TRAEFIK_NODE_PORT="$TRAEFIK_NODE_PORT" \
+    "${CONTAINER_ENV_ARGS[@]}" \
+    --volume "$PROJECT_ROOT:$PROJECT_ROOT" \
+    --volume "$KUBECONFIG_PATH:/tmp/kubeconfig:ro" \
+    --workdir "$PROJECT_ROOT" \
+    "$BDD_PLAYWRIGHT_IMAGE" \
+    bash tests/bdd/scripts/run_playwright_container.sh
+else
+  : "${VENV_PATH:?VENV_PATH is required for non-UI BDD runs}"
+  source "$VENV_PATH/bin/activate"
+  echo "Checking statuslist for BDD at $STATUSLIST_SERVICE_URL"
+  python "$PWD/tests/bdd/scripts/ensure_statuslist_for_bdd.py"
+  python -c 'import eu.xfsc.bdd.core' >/dev/null
+  "$VENV_PATH/bin/coverage" run --append -m behave "${JUNIT_ARGS[@]}" "$FEATURES_PATH" "${EXTRA_ARGS[@]}"
+fi
 
 JUNIT_COUNT=$(find "$REPORTS_JUNIT_DIR" -name "*.xml" 2>/dev/null | wc -l || true)
 echo "Generated $JUNIT_COUNT junit XML files in $REPORTS_JUNIT_DIR/"

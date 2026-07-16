@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios'
+import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { getConfig } from '@/config'
 import { authenticationService } from '@/services/authentication-service'
 import { useAuthTokenStore } from '@/stores/auth-token-store'
@@ -8,6 +8,8 @@ const http = axios.create({
   baseURL: getConfig().API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 })
+
+type AuthRetryConfig = InternalAxiosRequestConfig & { authRetryCompleted?: boolean }
 
 http.interceptors.request.use((config) => {
   const tokenStore = useAuthTokenStore()
@@ -20,10 +22,12 @@ http.interceptors.response.use(
   async (err: Error | AxiosError) => {
     const errorStore = useErrorStore()
     if (axios.isAxiosError(err)) {
-      if (err.status === 401 && err.config) {
+      const request = err.config as AuthRetryConfig | undefined
+      if (err.status === 401 && request && !request.authRetryCompleted) {
+        request.authRetryCompleted = true
         const isRefreshed = await authenticationService.refresh()
         if (isRefreshed) {
-          return http(err.config)
+          return http(request)
         }
       }
     }

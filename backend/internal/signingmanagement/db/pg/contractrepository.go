@@ -49,7 +49,7 @@ func (r *PostgresContractRepo) ReadDataByDID(ctx context.Context, tx *sqlx.Tx, d
 
 func (r *PostgresContractRepo) ReadAllMetaData(ctx context.Context, tx *sqlx.Tx, pagination datatype.Pagination) ([]db.ContractMetadata, error) {
 	query := `
-        SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible
+		SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, contract_data
         FROM contracts
         WHERE state IN ('APPROVED', 'SIGNED')
     `
@@ -158,13 +158,13 @@ func (r *PostgresContractRepo) ActiveKeyVersion(ctx context.Context, tx *sqlx.Tx
 	return version, nil
 }
 
-func (r *PostgresContractRepo) RevokeSignature(ctx context.Context, tx *sqlx.Tx, did string, signerDID string) error {
+func (r *PostgresContractRepo) RevokeSignature(ctx context.Context, tx *sqlx.Tx, did string, signerDID string, reason string) error {
 	now := time.Now().UTC()
 	result, err := tx.ExecContext(ctx,
 		`UPDATE contract_signatures
-		    SET status = 'REVOKED', revoked_at = $1
-		  WHERE contract_did = $2 AND signer_did = $3 AND status != 'REVOKED'`,
-		now, did, signerDID,
+		    SET status = 'REVOKED', revoked_at = $1, revoked_reason = $2
+		  WHERE contract_did = $3 AND signer_did = $4 AND status != 'REVOKED'`,
+		now, reason, did, signerDID,
 	)
 	if err != nil {
 		return err
@@ -210,22 +210,6 @@ func (r *PostgresContractRepo) ReadLatestEnvelopeByContractDID(ctx context.Conte
 		env.RevokedAt = &t
 	}
 	return env, nil
-}
-
-func (r *PostgresContractRepo) ReadAllSigningTasks(ctx context.Context, tx *sqlx.Tx) ([]db.ContractSigningTask, error) {
-
-	var tasks []db.ContractSigningTask
-	err := tx.SelectContext(ctx, &tasks,
-		`SELECT cs.contract_did, c.contract_version, cs.status AS state, cs.signer_did, cs.field_name, cs.created_at
-		   FROM contract_signatures cs
-		   JOIN contracts c ON c.did = cs.contract_did
-		  WHERE c.state = 'APPROVED' AND cs.status = 'PENDING' AND cs.field_name IS NOT NULL
-		  ORDER BY cs.created_at DESC`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return tasks, nil
 }
 
 func (r *PostgresContractRepo) CountSignatureForContractDID(ctx context.Context, tx *sqlx.Tx, did string) (int, error) {
@@ -302,13 +286,7 @@ func (r *PostgresContractRepo) CollectValidationFindings(ctx context.Context, tx
 		_, verifyErr := r.PDFCore.Verify(ctx, pdfBytes)
 		if verifyErr != nil {
 			findings = append(findings, fmt.Sprintf("Integrity check failed: %v", verifyErr))
-		} else {
-			findings = append(findings, "Document integrity check passed")
 		}
-	}
-
-	if len(findings) == 0 {
-		findings = append(findings, "Validation passed")
 	}
 
 	return findings, nil
@@ -317,7 +295,7 @@ func (r *PostgresContractRepo) CollectValidationFindings(ctx context.Context, tx
 func (r *PostgresContractRepo) LoadSignatures(ctx context.Context, tx *sqlx.Tx, did string) ([]db.SignatureRecord, error) {
 	var records []db.SignatureRecord
 	err := tx.SelectContext(ctx, &records,
-		`SELECT signer_did, credential_type, status, signed_at, revoked_at, cert_revoked_at, field_name
+		`SELECT signer_did, credential_type, status, signed_at, revoked_at, revoked_reason, cert_revoked_at, field_name
 		   FROM contract_signatures
 		  WHERE contract_did = $1
 		  ORDER BY created_at`, did,

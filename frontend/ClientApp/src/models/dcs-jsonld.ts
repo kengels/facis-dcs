@@ -178,6 +178,10 @@ export interface DcsContractData extends DcsDocumentData {
   'dcs:metadata': DcsContractMetadata | DcsTemplateMetadata
   'dcs:contractFields'?: DcsContractField[]
   'dcs:parentContract'?: JsonLdReference
+  'dcs:parties'?: JsonLdReference[]
+  'dcs:assets'?: JsonLdReference[]
+  'dcs:policyTypes'?: JsonLdReference[]
+  'dcs:evidence'?: (JsonLdReference & { '@type': 'dcs:Evidence' })[]
   semanticConditionValues?: {
     blockId: string
     conditionId: string

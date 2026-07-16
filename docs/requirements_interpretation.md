@@ -1962,6 +1962,13 @@ effective_requirement: |
 
 ## Interface Requirements
 
+UI implementation status is backed by the machine-readable catalog in
+`tests/bdd/ui_coverage.json`. A requirement is treated as UI-covered only when its tagged
+scenario in `features/24_ui_traceability/` passed through Python Playwright against the
+kind/Helm product image. The current canonical evidence set contains 28 passed scenarios and 484 passed
+steps, with no failures, skips, or undefined steps. HTTP-only scenarios do not qualify as UI
+evidence.
+
 ### DCS-IR-TR-01 - Template Builder UI
 id: DCS-IR-TR-01
 area: Interface Requirements
@@ -2069,7 +2076,7 @@ effective_requirement: |
 ### DCS-IR-CWE-02
 id: DCS-IR-CWE-02
 area: Interface Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Contract Creation UI MUST enable population of contract data, including parties, assets,
@@ -2077,8 +2084,10 @@ source_requirement: |
 effective_requirement: |
   Contract Creation UI MUST enable population of contract data, including parties, assets,
   policies, and evidence.
-context_note: |
-  ontology ongoing
+implementation_decision: |
+  The existing contract editor populates parties, assets, policies, and typed evidence from the
+  product model. Browser evidence is provided by the @DCS-IR-CWE-02 scenario in
+  features/24_ui_traceability/contract_workflow_ui.feature.
 
 ### DCS-IR-CWE-03 - Contract Negotiation UI
 id: DCS-IR-CWE-03
@@ -2201,7 +2210,7 @@ effective_requirement: |
 ### DCS-IR-CWE-13
 id: DCS-IR-CWE-13
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Ongoing
 interpretation_status: Unchanged
 source_requirement: |
   Contract Management Dashboard UI MUST provide lifecycle monitoring aligned with XFSC
@@ -2209,13 +2218,16 @@ source_requirement: |
 effective_requirement: |
   Contract Management Dashboard UI MUST provide lifecycle monitoring aligned with XFSC
   lifecycle/log token usage.
-context_note: |
-  needs to be clearified; what are XFSC lifecycle/log tokens
+implementation_decision: |
+  Lifecycle monitoring through authoritative contract states, history, KPI values, milestones,
+  violations, and timestamps is implemented and browser-covered. The separate phrase "XFSC
+  lifecycle/log token usage" has no defined product contract or acceptance criteria and remains
+  decision-blocked; no client-side semantics are invented for it.
 
 ### DCS-IR-SM-01 - Secure Contract Viewer UI
 id: DCS-IR-SM-01
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Secure Contract Viewer UI MUST allow Signers and Managers to retrieve approved contracts
@@ -2227,7 +2239,7 @@ effective_requirement: |
 ### DCS-IR-SM-02
 id: DCS-IR-SM-02
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Secure Contract Viewer UI MUST allow verification of contract integrity and signature
@@ -2239,7 +2251,7 @@ effective_requirement: |
 ### DCS-IR-SM-03
 id: DCS-IR-SM-03
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Secure Contract Viewer UI MUST allow applying signatures with appropriate credentials (e.g.,
@@ -2251,7 +2263,7 @@ effective_requirement: |
 ### DCS-IR-SM-04
 id: DCS-IR-SM-04
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Secure Contract Viewer UI MUST allow validation of applied signatures to ensure compliance and
@@ -2263,7 +2275,7 @@ effective_requirement: |
 ### DCS-IR-SM-05 - Signature Compliance Viewer UI
 id: DCS-IR-SM-05
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Signature Compliance Viewer UI MUST allow compliance users to validate trust anchors,
@@ -2275,7 +2287,7 @@ effective_requirement: |
 ### DCS-IR-SM-06
 id: DCS-IR-SM-06
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Signature Compliance Viewer UI MUST allow revocation of signatures if required (e.g., signer
@@ -2287,7 +2299,7 @@ effective_requirement: |
 ### DCS-IR-SM-07
 id: DCS-IR-SM-07
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Signature Compliance Viewer UI MUST allow running compliance checks against applicable
@@ -2299,7 +2311,7 @@ effective_requirement: |
 ### DCS-IR-SM-08
 id: DCS-IR-SM-08
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Signature Compliance Viewer UI MUST allow generating audit reports covering validation and
@@ -2311,7 +2323,7 @@ effective_requirement: |
 ### DCS-IR-CSA-01 - Archive Manager Dashboard UI
 id: DCS-IR-CSA-01
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Archive Manager Dashboard UI MUST allow Archive Managers to retrieve and search archived
@@ -2323,7 +2335,7 @@ effective_requirement: |
 ### DCS-IR-CSA-02
 id: DCS-IR-CSA-02
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Archive Manager Dashboard UI MUST allow storing new contracts and evidence in the archive.
@@ -2333,7 +2345,7 @@ effective_requirement: |
 ### DCS-IR-CSA-03
 id: DCS-IR-CSA-03
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Archive Manager Dashboard UI MUST allow terminating or deleting archived entries under defined
@@ -2345,7 +2357,7 @@ effective_requirement: |
 ### DCS-IR-CSA-04
 id: DCS-IR-CSA-04
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Archive Manager Dashboard UI MUST allow running audits on archive operations and integrity.
@@ -2355,7 +2367,7 @@ effective_requirement: |
 ### DCS-IR-PACM-01 - Auditing Tool UI
 id: DCS-IR-PACM-01
 area: Interface Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Auditing Tool UI MUST allow Auditors to initiate audits across contracts, templates, and
@@ -2367,7 +2379,7 @@ effective_requirement: |
 ### DCS-IR-PACM-02
 id: DCS-IR-PACM-02
 area: Interface Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Auditing Tool UI MUST provide reporting capabilities with exportable audit results.
@@ -2377,7 +2389,7 @@ effective_requirement: |
 ### DCS-IR-PACM-03 - Non-Compliance Investigation UI
 id: DCS-IR-PACM-03
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Non-Compliance Investigation UI MUST allow Compliance Officers to continuously monitor events
@@ -2389,7 +2401,7 @@ effective_requirement: |
 ### DCS-IR-PACM-04
 id: DCS-IR-PACM-04
 area: Interface Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Non-Compliance Investigation UI MUST allow incident reporting and linking findings to affected

@@ -29,16 +29,16 @@ export interface ContractTemplateUpdateManageResponse {
   did: string
 }
 
-interface ContractTemplateSearchResponseItem {
+export interface ContractTemplateSearchResponseItem {
   did: string
   document_number?: string
-  version: string
+  version: number
   state: ContractTemplateState
   template_type: TemplateType
   name?: string
   description?: string
-  created_at: string
   created_by: string
+  created_at: string
   updated_at: string
 }
 
@@ -87,6 +87,16 @@ export interface ContractTemplateRegisterResponse {
   did: string
 }
 
+export interface ContractTemplateDependencyValidateResponse {
+  valid: true
+  did: string
+  document_number?: string
+  version: number
+  name?: string
+  description?: string
+  template_data: DcsTemplateData
+}
+
 export interface ContractTemplateAuditResponseItem {
   id: number
   component: ComponentType
@@ -99,6 +109,17 @@ export interface ContractTemplateAuditResponseItem {
 }
 
 export type ContractTemplateAuditResponse = ContractTemplateAuditResponseItem[]
+
+export type ContractTemplateHistoryResponse = ContractTemplateRetrieveByIdResponse[]
+
+export interface TemplateProvenanceCredentialResponse {
+  version: number
+  vc_id: string
+  previous_vc_id?: string
+  credential: unknown
+}
+
+export type TemplateProvenanceResponse = TemplateProvenanceCredentialResponse[]
 
 export interface ContractTemplatePublishResponse {
   did: string

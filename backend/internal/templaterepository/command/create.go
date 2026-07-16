@@ -24,6 +24,7 @@ import (
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatetype"
 	"digital-contracting-service/internal/templaterepository/db"
+	"digital-contracting-service/internal/templaterepository/dependency"
 	templateevents "digital-contracting-service/internal/templaterepository/event"
 )
 
@@ -60,6 +61,9 @@ func (h *Creator) Handle(ctx context.Context, cmd CreateCmd) error {
 			log.Printf("could not rollback transaction: %v", err)
 		}
 	}(tx)
+	if err := dependency.ValidateTemplateData(ctx, tx, h.CTRepo, cmd.DID, cmd.TemplateData); err != nil {
+		return fmt.Errorf("template dependency validation failed: %w", err)
+	}
 
 	data := db.ContractTemplate{
 		DID:            cmd.DID,

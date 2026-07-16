@@ -55,8 +55,7 @@ func (h *Archiver) Handle(ctx context.Context, cmd ArchiveCmd) error {
 		return errors.New("contract template was updated elsewhere, please reload")
 	}
 
-	if processData.State == contracttemplatestate.Deprecated.String() ||
-		processData.State == contracttemplatestate.Deleted.String() {
+	if processData.State == contracttemplatestate.Deleted.String() {
 		return errors.New("invalid contract template state")
 	}
 

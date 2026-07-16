@@ -3,6 +3,7 @@ import { storeToRefs } from 'pinia'
 import { computed, onMounted, onUnmounted, type Ref, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ContractManagerActions from '@/components/contract/ContractManagerActions.vue'
+import ParticipantSelectionDialog from '@/components/ParticipantSelectionDialog.vue'
 import AuditView from '@/modules/contract-workflow-engine/components/AuditView.vue'
 import ContractDetailsEditor from '@/modules/contract-workflow-engine/components/ContractDetailsEditor.vue'
 import ContractStructureTree from '@/modules/contract-workflow-engine/components/ContractStructureTree.vue'
@@ -17,9 +18,11 @@ import { contractWorkflowService } from '@/services/contract-workflow-service'
 import { useAuthStore } from '@/stores/auth-store'
 import { useContractsStore } from '@/stores/contracts-store'
 import { ContractState } from '@/types/contract-state'
+import { UserRole } from '@/types/user-role'
+import { toProperCase } from '@/utils/string'
 import type { Contract } from '@/models/contract/contract'
 import type { VerificationResult } from '@/modules/contract-workflow-engine/composables/useSemanticValueVerification'
-import type { UserRole } from '@/types/user-role'
+import type { ParticipantSelection } from '@/utils/participant-selection'
 
 const route = useRoute()
 
@@ -35,13 +38,47 @@ const { activeTab } = storeToRefs(contractEditorUiStore)
 
 const contract: Ref<Contract | null> = ref(null)
 const verificationResult: Ref<VerificationResult | null> = ref(null)
+const evidenceType = ref('')
+const evidenceReference = ref('')
+const evidenceResult = ref<{ evidence_type: string; reference: string; recorded_at: string } | null>(null)
 
 const isAuditingAuthorized = computed(
   () =>
-    (['AUDITOR', 'COMPLIANCE_OFFICER', 'SYSTEM_ADMINISTRATOR'] as UserRole[]).some((role) =>
-      authStore.user?.roles?.includes(role),
+    [UserRole.auditor, UserRole.complianceOfficer, UserRole.contractManager, UserRole.systemAdministrator].some(
+      (role) => authStore.user?.roles?.includes(role),
     ) ?? false,
 )
+const canManage = computed(() => authStore.user?.roles?.includes(UserRole.contractManager) ?? false)
+const canSubmit = computed(
+  () =>
+    contract.value?.state === ContractState.draft &&
+    ((authStore.user?.roles?.includes(UserRole.contractCreator) ?? false) ||
+      (authStore.user?.roles?.includes(UserRole.contractManager) ?? false)),
+)
+
+async function storeEvidence() {
+  if (!contract.value || !evidenceType.value.trim() || !evidenceReference.value.trim()) return
+  const result = await contractWorkflowService.store({
+    did: contract.value.did,
+    updated_at: contract.value.updated_at,
+    evidence_type: evidenceType.value.trim(),
+    reference: evidenceReference.value.trim(),
+  })
+  evidenceResult.value = result
+  contract.value = await contractWorkflowService.retrieveById({ did: contract.value.did })
+}
+
+async function submitContract({ reviewers, approvers, negotiators }: ParticipantSelection) {
+  if (!contract.value || !canSubmit.value) return
+  await contractWorkflowService.submit({
+    did: contract.value.did,
+    updated_at: contract.value.updated_at,
+    reviewers,
+    approvers,
+    negotiators,
+  })
+  contract.value = await contractWorkflowService.retrieveById({ did: contract.value.did })
+}
 
 const tabs = computed(() =>
   contractEditorUiStore.availableTabs(contract.value?.state ?? ContractState.draft).filter((tab) => {
@@ -175,6 +212,108 @@ const exportPDF = async () => {
               <div v-show="activeTab === 'details'">
                 <ContractDetailsEditor :contract="contract" disabled />
 
+                <section class="card mt-4 border border-base-300 bg-base-100">
+                  <div class="card-body gap-3 text-sm">
+                    <div data-test-id="contract-dashboard-lifecycle">
+                      <h2 class="font-semibold">Lifecycle</h2>
+                      <p>{{ toProperCase(contract.state) }} · Updated {{ contract.updated_at }}</p>
+                    </div>
+                    <div data-test-id="contract-dashboard-responsibility">
+                      <h2 class="font-semibold">Responsibilities</h2>
+                      <template v-if="contract.responsible">
+                        <p>Creator: {{ contract.responsible.creator }}</p>
+                        <p>Reviewers: {{ (contract.responsible.reviewers ?? []).join(', ') || 'None assigned' }}</p>
+                        <p>Approvers: {{ (contract.responsible.approvers ?? []).join(', ') || 'None assigned' }}</p>
+                        <p>Negotiators: {{ (contract.responsible.negotiators ?? []).join(', ') || 'None assigned' }}</p>
+                      </template>
+                      <p v-else>No responsibilities assigned.</p>
+                    </div>
+                    <div data-test-id="contract-dashboard-deadline">
+                      <h2 class="font-semibold">Deadline</h2>
+                      <template v-if="contract.exp_date">
+                        <p>{{ contract.exp_date }}</p>
+                        <p v-if="contract.exp_notice_period != null">
+                          Notice period: {{ contract.exp_notice_period }} days
+                        </p>
+                        <p v-if="contract.exp_policy">Expiration policy: {{ contract.exp_policy }}</p>
+                      </template>
+                      <p v-else>No deadline configured.</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="card mt-4 border border-base-300 bg-base-100">
+                  <div class="card-body gap-2 text-sm">
+                    <p data-test-id="contract-party-list">
+                      {{ contract.contract_data?.['dcs:parties']?.map((item) => item['@id']).join(', ') }}
+                    </p>
+                    <p data-test-id="contract-asset-list">
+                      {{ contract.contract_data?.['dcs:assets']?.map((item) => item['@id']).join(', ') }}
+                    </p>
+                    <p data-test-id="contract-policy-list">
+                      {{ contract.contract_data?.['dcs:policyTypes']?.map((item) => item['@id']).join(', ') }}
+                    </p>
+                    <p data-test-id="contract-evidence-list">
+                      {{ contract.contract_data?.['dcs:evidence']?.map((item) => item['@id']).join(', ') }}
+                    </p>
+                  </div>
+                </section>
+
+                <section data-test-id="contract-dashboard-history" class="card mt-4 border border-base-300 bg-base-100">
+                  <div class="card-body">
+                    <h2 class="card-title text-sm">Lifecycle history</h2>
+                    <div data-test-id="contract-audit-timeline"><AuditView eager /></div>
+                  </div>
+                </section>
+
+                <section
+                  data-test-id="contract-dashboard-hierarchy"
+                  class="card mt-4 border border-base-300 bg-base-100"
+                >
+                  <div class="card-body">
+                    <h2 class="card-title text-sm">Contract hierarchy</h2>
+                    <p>{{ parentContract?.name ?? parentContract?.did ?? 'Root contract' }} → {{ contractTitle }}</p>
+                    <div data-test-id="contract-dashboard-dependencies">
+                      <p v-if="childContracts.length === 0">No dependent contracts.</p>
+                      <RouterLink
+                        v-for="child in childContracts"
+                        :key="child.did"
+                        :to="{ name: ROUTES.CONTRACTS.VIEW, params: { did: child.did } }"
+                      >
+                        {{ child.name ?? child.did }}
+                      </RouterLink>
+                    </div>
+                  </div>
+                </section>
+
+                <section v-if="canManage" class="card mt-4 border border-base-300 bg-base-100 shadow-sm">
+                  <div class="card-body gap-2">
+                    <h2 class="card-title text-sm">Contract evidence</h2>
+                    <input
+                      v-model="evidenceType"
+                      class="input-bordered input"
+                      data-test-id="contract-evidence-type"
+                      placeholder="Evidence type"
+                    />
+                    <input
+                      v-model="evidenceReference"
+                      class="input-bordered input"
+                      data-test-id="contract-evidence-reference"
+                    />
+                    <button class="btn btn-primary" data-test-id="contract-evidence-store" @click="storeEvidence">
+                      Store evidence
+                    </button>
+                    <p
+                      v-if="evidenceResult"
+                      data-test-id="contract-evidence-result"
+                      :data-test-key="evidenceResult.reference"
+                    >
+                      {{ evidenceResult.evidence_type }} · {{ evidenceResult.reference }} ·
+                      {{ evidenceResult.recorded_at }}
+                    </p>
+                  </div>
+                </section>
+
                 <!-- Deployment KPIs (DCS-FR-CWE-31, DCS-FR-CWE-09) -->
                 <div
                   v-if="contract.kpis && contract.kpis.length > 0"
@@ -187,12 +326,35 @@ const exportPDF = async () => {
                       <li
                         v-for="kpi in contract.kpis"
                         :key="`${kpi.metric}-${kpi.observed_at}`"
+                        data-test-id="contract-kpi-milestone"
+                        :data-test-key="kpi.metric"
                         class="flex items-center gap-2 text-sm"
                       >
                         <span class="font-medium">{{ kpi.metric }}</span>
-                        <span>{{ kpi.value }}</span>
-                        <span class="text-xs text-base-content/40">{{ kpi.observed_at }}</span>
-                        <span v-if="kpi.violation" class="badge badge-sm badge-error">Violation</span>
+                        <span data-test-id="contract-kpi-value" :data-test-key="kpi.metric">{{ kpi.value }}</span>
+                        <time
+                          data-test-id="contract-kpi-timestamp"
+                          :data-test-key="kpi.metric"
+                          class="text-xs text-base-content/40"
+                        >
+                          {{ kpi.observed_at }}
+                        </time>
+                        <span
+                          v-if="kpi.violation"
+                          data-test-id="contract-kpi-violation"
+                          :data-test-key="kpi.metric"
+                          class="badge badge-sm badge-error"
+                        >
+                          Violation
+                        </span>
+                        <span
+                          v-if="kpi.violation"
+                          data-test-id="contract-kpi-alert"
+                          :data-test-key="kpi.metric"
+                          class="text-error"
+                        >
+                          SLA alert
+                        </span>
                       </li>
                     </ul>
                   </div>
@@ -229,7 +391,7 @@ const exportPDF = async () => {
                 </div>
               </div>
 
-              <div v-show="activeTab === 'content'">
+              <div v-if="activeTab === 'content'">
                 <div class="card border border-base-300 bg-base-100 shadow-sm">
                   <div class="card-body gap-5">
                     <div>
@@ -247,19 +409,19 @@ const exportPDF = async () => {
               </div>
 
               <template v-if="isAuditingAuthorized">
-                <div v-show="activeTab === 'audit'">
+                <div v-if="activeTab === 'audit'">
                   <div class="card border border-base-300 bg-base-100 shadow-sm">
-                    <div data-test-id="contract-dashboard-history" class="card-body">
+                    <div data-test-id="contract-audit-tab" class="card-body">
                       <h2 class="card-title text-sm">Audit History</h2>
-                      <div data-test-id="contract-audit-timeline"><AuditView /></div>
+                      <div><AuditView /></div>
                     </div>
                   </div>
                 </div>
               </template>
 
-              <div v-show="activeTab === 'structure'">
+              <div v-if="activeTab === 'structure'">
                 <div class="card border border-base-300 bg-base-100 shadow-sm">
-                  <div data-test-id="contract-dashboard-hierarchy" class="card-body gap-4">
+                  <div data-test-id="contract-structure-tab" class="card-body gap-4">
                     <!-- Ancestor chain -->
                     <div v-if="ancestors.length > 0" class="space-y-1">
                       <div
@@ -293,7 +455,7 @@ const exportPDF = async () => {
                     <!-- Children -->
                     <div
                       v-if="childContracts.length > 0"
-                      data-test-id="contract-dashboard-dependencies"
+                      data-test-id="contract-structure-dependencies"
                       :style="{ paddingLeft: `${ancestors.length + 1}rem` }"
                       class="border-l border-base-300 pl-4"
                     >
@@ -302,7 +464,7 @@ const exportPDF = async () => {
 
                     <p
                       v-else-if="ancestors.length === 0"
-                      data-test-id="contract-dashboard-dependencies"
+                      data-test-id="contract-structure-dependencies"
                       class="text-sm text-base-content/40"
                     >
                       This contract has no parent or child contracts.
@@ -319,6 +481,12 @@ const exportPDF = async () => {
       <div class="mx-auto flex max-w-4xl flex-col gap-3 px-6 py-3 md:flex-row">
         <button class="btn btn-outline md:w-32" @click="$router.back()">Back</button>
         <button class="btn btn-outline md:w-32" @click="exportPDF">Export PDF</button>
+        <ParticipantSelectionDialog
+          v-if="canSubmit"
+          class="btn flex-1 btn-primary"
+          data-test-id="contract-submit-review"
+          @submit="submitContract"
+        />
         <ContractManagerActions v-if="contract" :contract="contract" class="btn flex-1 btn-primary" />
       </div>
     </div>

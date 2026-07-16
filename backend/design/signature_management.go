@@ -37,9 +37,13 @@ var SMContractSigningTaskItem = Type("SMContractSigningTaskItem", func() {
 	Attribute("state", String, "State of the review task")
 	Attribute("signer", String, "The reviewer of the contract")
 	Attribute("field_name", String, "The declared signature field this task covers")
+	Attribute("order", Int, "One-based order from the contract's signatureFields declaration")
+	Attribute("dependency", String, "Immediately preceding signature field that must be signed first")
+	Attribute("deadline", String, "Authoritative contract signature deadline, when declared")
+	Attribute("signed_at", String, "Authoritative completion timestamp when the declared field was signed")
 	Attribute("created_at", String, "Created at")
 
-	Required("did", "state", "signer", "field_name", "created_at", "contract_version")
+	Required("did", "state", "signer", "field_name", "created_at", "contract_version", "order")
 })
 
 var SMContractRetrieveResponse = Type("SMContractRetrieveResponse", func() {
@@ -119,8 +123,14 @@ var SMContractVerifyResponse = Type("SMContractVerifyResponse", func() {
 	Attribute("base_pdf_hash", String, "SHA-256 hex of the re-generated base PDF")
 	Attribute("sig_count", Int, "Number of active (non-revoked) signatures")
 	Attribute("findings", ArrayOf(String), "A list of findings")
+	Attribute("integrity_status", String, "Authoritative cryptographic integrity status", func() {
+		Enum("VALID", "INVALID")
+	})
+	Attribute("envelope_status", String, "Authoritative signature-envelope status", func() {
+		Enum("VALID", "INVALID")
+	})
 
-	Required("did", "match", "sig_count")
+	Required("did", "match", "sig_count", "integrity_status", "envelope_status")
 })
 
 var SMContractApplyRequest = Type("SMContractApplyRequest", func() {
@@ -161,8 +171,9 @@ var SMContractValidateResponse = Type("SMContractValidateResponse", func() {
 
 	Attribute("did", String, "Decentralized Identifier of the contract")
 	Attribute("findings", ArrayOf(String), "A list of findings")
+	Attribute("status", String, "Authoritative validation status", func() { Enum("VALID", "INVALID") })
 
-	Required("did")
+	Required("did", "status")
 })
 
 var SMContractRevokeRequest = Type("SMContractRevokeRequest", func() {
@@ -225,8 +236,11 @@ var SMContractComplianceResponse = Type("SMContractComplianceResponse", func() {
 
 	Attribute("did", String, "Decentralized Identifier of the contract")
 	Attribute("findings", ArrayOf(String), "A list of findings")
+	Attribute("status", String, "Authoritative compliance status", func() {
+		Enum("COMPLIANT", "NON_COMPLIANT")
+	})
 
-	Required("did")
+	Required("did", "status")
 })
 
 var SMSignatureViewRequest = Type("SMSignatureViewRequest", func() {
@@ -246,6 +260,7 @@ var SMSignatureViewItem = Type("SMSignatureViewItem", func() {
 	Attribute("status", String, "Signature status (SIGNED or REVOKED)")
 	Attribute("signed_at", String, "When the signature was applied")
 	Attribute("revoked_at", String, "When the signature was revoked, if it was")
+	Attribute("revocation_reason", String, "Reason recorded when the signature was revoked")
 	Attribute("format", String, "Signature container format")
 
 	Required("signer_did", "credential_type", "status", "format")
@@ -258,8 +273,12 @@ var SMSignatureViewResponse = Type("SMSignatureViewResponse", func() {
 	Attribute("contract_state", String, "Current contract lifecycle state")
 	Attribute("signatures", ArrayOf(SMSignatureViewItem), "All signatures applied to the contract")
 	Attribute("integrity_findings", ArrayOf(String), "Cryptographic integrity findings from the validation machinery (empty = intact)")
+	Attribute("integrity_status", String, "Authoritative cryptographic integrity status", func() {
+		Enum("VALID", "INVALID")
+	})
+	Attribute("can_revoke", Boolean, "Whether the authenticated principal is authorized to invoke signature revocation")
 
-	Required("did", "contract_state", "signatures", "integrity_findings")
+	Required("did", "contract_state", "signatures", "integrity_findings", "integrity_status", "can_revoke")
 })
 
 var SMSignatureRequestStartRequest = Type("SMSignatureRequestStartRequest", func() {
@@ -305,6 +324,21 @@ var SMSignatureRequestStatusResponse = Type("SMSignatureRequestStatusResponse", 
 	Attribute("expires_at", String, "ISO-8601 timestamp when the ceremony expires")
 
 	Required("ceremony_id", "status")
+})
+
+var SMSignaturePresentationRequest = Type("SMSignaturePresentationRequest", func() {
+	Attribute("ceremony_id", String, "Identifier of the signing ceremony")
+	Attribute("wallet_nonce", String, "Wallet-provided nonce for request-object retrieval")
+	Attribute("wallet_metadata", String, "Wallet metadata supplied during request-object retrieval")
+	Required("ceremony_id")
+})
+
+var SMSignaturePresentationCallback = Type("SMSignaturePresentationCallback", func() {
+	Attribute("state", String, "Signing ceremony identifier from the authorization request")
+	Attribute("vp_token", String, "DCQL presentation result returned by the wallet")
+	Attribute("error", String, "Wallet error code")
+	Attribute("error_description", String, "Wallet error details")
+	Required("state")
 })
 
 var SMSignatureWebhookRequest = Type("SMSignatureWebhookRequest", func() {
@@ -490,6 +524,35 @@ var _ = Service("SignatureManagement", func() {
 			Response("bad_request", StatusBadRequest)
 			Response("not_found", StatusNotFound)
 			Response("internal_error", StatusInternalServerError)
+		})
+	})
+
+	Method("ceremonyPresentationRequest", func() {
+		Description("Returns the signed OpenID4VP authorization request for a signing ceremony.")
+		NoSecurity()
+		Payload(SMSignaturePresentationRequest)
+		HTTP(func() {
+			GET("/signature/presentation/request/{ceremony_id}")
+			POST("/signature/presentation/request/{ceremony_id}")
+			SkipResponseBodyEncodeDecode()
+			Response(StatusOK, func() {
+				ContentType("application/oauth-authz-req+jwt")
+			})
+		})
+	})
+
+	Method("ceremonyPresentationCallback", func() {
+		Description("Accepts a wallet direct-post response and verifies the signing ceremony.")
+		NoSecurity()
+		Payload(SMSignaturePresentationCallback)
+		Result(SMSignatureWebhookResponse)
+		Error("bad_request", ErrorResult, "Invalid presentation")
+		Error("not_found", ErrorResult, "Ceremony not found")
+		HTTP(func() {
+			POST("/signature/presentation/callback")
+			Response(StatusOK)
+			Response("bad_request", StatusBadRequest)
+			Response("not_found", StatusNotFound)
 		})
 	})
 

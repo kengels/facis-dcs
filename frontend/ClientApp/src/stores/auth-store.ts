@@ -16,23 +16,28 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!user.value && authTokenStore.isAuthSet)
 
-  function setHolder(holder: string) {
+  function setHolder(holder: string): boolean {
     const authTokenStore = useAuthTokenStore()
     const payload = useJwt<{
       sub?: string
+      exp?: number
       roles?: unknown
       ext?: { iss?: string; roles?: unknown }
     }>(authTokenStore.accessToken).payload.value
 
     if (payload?.sub !== holder) {
       console.error('User Error: JWT sub mismatch', { expected: holder, sub: payload?.sub })
-      return
+      return false
+    }
+
+    if (typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now()) {
+      return false
     }
 
     const roles = mapRoleLabelsToUserRoles(rolesFromJwtPayload(payload))
     if (roles.length === 0) {
       console.error('User Error: Hydra access token has no mapped roles', { sub: payload.sub })
-      return
+      return false
     }
 
     user.value = {
@@ -40,11 +45,20 @@ export const useAuthStore = defineStore('auth', () => {
       issuer: payload?.ext?.iss ?? '',
       roles,
     }
+    return true
+  }
+
+  function restoreFromAccessToken(): boolean {
+    const holder = authTokenStore.getHolder
+    if (!authTokenStore.isAuthSet || typeof holder !== 'string' || holder.length === 0) {
+      return false
+    }
+    return setHolder(holder)
   }
 
   function remove() {
     user.value = null
   }
 
-  return { user, isAuthenticated, setHolder, remove }
+  return { user, isAuthenticated, setHolder, restoreFromAccessToken, remove }
 })

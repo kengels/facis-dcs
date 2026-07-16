@@ -29,6 +29,7 @@ const hasChosenType = ref(false)
 const { isCreator, isManager } = useTemplatePermissions()
 
 const contractTemplate: Ref<PartialContractTemplate | null> = ref(null)
+const wasRejected = ref(false)
 
 watch(
   () => props.did,
@@ -47,6 +48,14 @@ watch(
         }
         templateEditorUiStore.setTemplateEditable(false)
         contractTemplate.value = template
+
+        if (template.state === TemplateState.draft) {
+          void contractTemplateService.audit({ did: template.did }).then((entries) => {
+            wasRejected.value = entries.some((entry) => entry.event_type === 'REJECT_CONTRACT_TEMPLATE')
+          })
+        } else {
+          wasRejected.value = false
+        }
 
         draftStore.loadDocument(template.template_data, {
           did: template.did,
@@ -126,7 +135,7 @@ const exportPDF = async () => {
         <template v-if="isCreator || isManager">
           <button
             v-if="state === TemplateState.draft"
-            data-test-id="template-submit-review"
+            :data-test-id="wasRejected ? 'template-resubmit-review' : 'template-submit-review'"
             class="btn flex-1 btn-primary"
             @click="submitTemplate"
           >

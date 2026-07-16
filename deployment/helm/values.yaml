@@ -170,6 +170,9 @@ signing:
   # for RFC3161 token verification, overriding the embedded certs/tsa.crt
   # (mounted at /etc/dcs/tsa-trust, wired as TSA_TRUST_CERT_FILE).
   tsaTrustCertSecret: ""
+  # Shared secret used only for callbacks from the configured EUDIPLO bridge.
+  # Wallet direct-post callbacks use presentation binding instead.
+  eudiploWebhookSecret: ""
 
 # ---- PKCS#11 signing token (DCS-IR-HI-01) -----------------------------
 # Every private key is held in a PKCS#11 token. With provisioning.enabled a

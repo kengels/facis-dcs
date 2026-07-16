@@ -3,12 +3,16 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"digital-contracting-service/internal/base/datatype"
 	baseevent "digital-contracting-service/internal/base/event"
+	paccmd "digital-contracting-service/internal/processauditandcompliance/command"
+	pacdb "digital-contracting-service/internal/processauditandcompliance/db"
+	pacevent "digital-contracting-service/internal/processauditandcompliance/event"
 
 	qry2 "digital-contracting-service/internal/processauditandcompliance/query"
 
@@ -20,7 +24,6 @@ import (
 	"digital-contracting-service/internal/base/datatype/userrole"
 	cwedb "digital-contracting-service/internal/contractworkflowengine/db"
 	"digital-contracting-service/internal/middleware"
-	pacevent "digital-contracting-service/internal/processauditandcompliance/event"
 	templatedb "digital-contracting-service/internal/templaterepository/db"
 
 	"github.com/jmoiron/sqlx"
@@ -33,6 +36,7 @@ type processAuditAndCompliancesrvc struct {
 	CTRepo       templatedb.ContractTemplateRepo
 	CRepo        cwedb.ContractRepo
 	ATRepo       cwedb.ApprovalTaskRepo
+	IncidentRepo pacdb.IncidentRepo
 	auth.JWTAuthenticator
 }
 
@@ -47,8 +51,8 @@ type auditScopeConfig struct {
 	includeArchiveTrail            bool
 }
 
-func NewProcessAuditAndCompliance(db *sqlx.DB, jwtAuth auth.JWTAuthenticator, auditTrailReader base.AuditTrailReader, ctRepo templatedb.ContractTemplateRepo, cRepo cwedb.ContractRepo, atRepo cwedb.ApprovalTaskRepo) processauditandcompliance.Service {
-	return &processAuditAndCompliancesrvc{DB: db, JWTAuthenticator: jwtAuth, ATrailReader: auditTrailReader, CTRepo: ctRepo, CRepo: cRepo, ATRepo: atRepo}
+func NewProcessAuditAndCompliance(db *sqlx.DB, jwtAuth auth.JWTAuthenticator, auditTrailReader base.AuditTrailReader, ctRepo templatedb.ContractTemplateRepo, cRepo cwedb.ContractRepo, atRepo cwedb.ApprovalTaskRepo, incidentRepo pacdb.IncidentRepo) processauditandcompliance.Service {
+	return &processAuditAndCompliancesrvc{DB: db, JWTAuthenticator: jwtAuth, ATrailReader: auditTrailReader, CTRepo: ctRepo, CRepo: cRepo, ATRepo: atRepo, IncidentRepo: incidentRepo}
 }
 
 func (s *processAuditAndCompliancesrvc) Audit(ctx context.Context, req *processauditandcompliance.PACAuditRequest) (res []*processauditandcompliance.PACAuditResponse, err error) {
@@ -539,44 +543,64 @@ func (s *processAuditAndCompliancesrvc) IncidentReport(ctx context.Context, p *p
 	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
 	defer cancel()
 
-	resources := append(append([]string{}, p.AffectedContractDids...), p.AffectedTemplateDids...)
-	if len(resources) == 0 {
-		return nil, processauditandcompliance.MakeBadRequest(fmt.Errorf("at least one affected contract or template DID is required"))
+	handler := paccmd.IncidentReporter{DB: s.DB, Repo: s.IncidentRepo}
+	incident, err := handler.Handle(ctx, paccmd.ReportIncidentCmd{
+		AffectedContractDIDs: p.AffectedContractDids, AffectedTemplateDIDs: p.AffectedTemplateDids,
+		FindingRefs: p.FindingRefs, Reason: p.Reason, ReportedBy: middleware.GetParticipantID(ctx),
+		HolderDID: middleware.GetHolderDID(ctx), UserRoles: middleware.GetUserRoles(ctx),
+	})
+	if err != nil {
+		if errors.Is(err, paccmd.ErrInvalidIncident) {
+			return nil, processauditandcompliance.MakeBadRequest(err)
+		}
+		return nil, processauditandcompliance.MakeInternalError(err)
 	}
-	reportedAt := time.Now().UTC()
-	incidentID := fmt.Sprintf("incident-%d", reportedAt.UnixNano())
-	tx, err := s.DB.BeginTxx(ctx, nil)
+	return incidentResponse(incident), nil
+}
+
+func incidentResponse(row *pacdb.Incident) *processauditandcompliance.PACIncidentReportResponse {
+	return &processauditandcompliance.PACIncidentReportResponse{
+		IncidentID: row.IncidentID, AffectedContractDids: row.AffectedContractDIDs,
+		AffectedTemplateDids: row.AffectedTemplateDIDs, FindingRefs: row.FindingRefs,
+		Reason: row.Reason, ReportedAt: row.ReportedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (s *processAuditAndCompliancesrvc) IncidentList(ctx context.Context, _ *processauditandcompliance.IncidentListPayload) ([]*processauditandcompliance.PACIncidentReportResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
+	defer cancel()
+	rows, err := (&qry2.IncidentReader{DB: s.DB, Repo: s.IncidentRepo}).List(ctx)
 	if err != nil {
 		return nil, processauditandcompliance.MakeInternalError(err)
 	}
-	defer func() { _ = tx.Rollback() }()
-	seen := make(map[string]struct{}, len(resources))
-	for _, resourceDID := range resources {
-		resourceDID = strings.TrimSpace(resourceDID)
-		if resourceDID == "" {
-			return nil, processauditandcompliance.MakeBadRequest(fmt.Errorf("affected DIDs must not be empty"))
-		}
-		if _, exists := seen[resourceDID]; exists {
-			continue
-		}
-		seen[resourceDID] = struct{}{}
-		evt := pacevent.IncidentReportedEvent{
-			IncidentID: incidentID, ResourceDID: resourceDID,
-			AffectedContractDIDs: p.AffectedContractDids, AffectedTemplateDIDs: p.AffectedTemplateDids,
-			FindingRefs: p.FindingRefs, Reason: p.Reason,
-			ReportedBy: middleware.GetParticipantID(ctx), ReportedAt: reportedAt,
-			HolderDID: middleware.GetHolderDID(ctx), UserRoles: middleware.GetUserRoles(ctx),
-		}
-		if err := baseevent.Create(ctx, tx, evt, componenttype.ProcessAuditAndCompliance); err != nil {
-			return nil, processauditandcompliance.MakeInternalError(err)
-		}
+	result := make([]*processauditandcompliance.PACIncidentReportResponse, 0, len(rows))
+	for index := range rows {
+		result = append(result, incidentResponse(&rows[index]))
 	}
-	if err := tx.Commit(); err != nil {
+	return result, nil
+}
+
+func (s *processAuditAndCompliancesrvc) IncidentGet(ctx context.Context, p *processauditandcompliance.IncidentGetPayload) (*processauditandcompliance.PACIncidentReportResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
+	defer cancel()
+	row, err := (&qry2.IncidentReader{DB: s.DB, Repo: s.IncidentRepo}).Get(ctx, p.IncidentID)
+	if errors.Is(err, pacdb.ErrIncidentNotFound) {
+		return nil, processauditandcompliance.MakeBadRequest(fmt.Errorf("incident %q not found", p.IncidentID))
+	}
+	if err != nil {
 		return nil, processauditandcompliance.MakeInternalError(err)
 	}
-	return &processauditandcompliance.PACIncidentReportResponse{
-		IncidentID: incidentID, AffectedContractDids: p.AffectedContractDids,
-		AffectedTemplateDids: p.AffectedTemplateDids, FindingRefs: p.FindingRefs,
-		Reason: p.Reason, ReportedAt: reportedAt.Format(time.RFC3339),
-	}, nil
+	return incidentResponse(row), nil
+}
+
+func (s *processAuditAndCompliancesrvc) IncidentExport(ctx context.Context, p *processauditandcompliance.IncidentExportPayload) ([]byte, error) {
+	incident, err := s.IncidentGet(ctx, &processauditandcompliance.IncidentGetPayload{IncidentID: p.IncidentID})
+	if err != nil {
+		return nil, err
+	}
+	payload, err := json.MarshalIndent(incident, "", "  ")
+	if err != nil {
+		return nil, processauditandcompliance.MakeInternalError(err)
+	}
+	return payload, nil
 }

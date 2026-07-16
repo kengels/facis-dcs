@@ -8,6 +8,7 @@ import type {
   ContractNegotiationRequest,
   ContractNegotiationRespondRequest,
   ContractRejectRequest,
+  ContractRenewRequest,
   ContractRetrieveByIdRequest,
   ContractRetrieveRequest,
   ContractReviewRequest,
@@ -27,6 +28,7 @@ import type {
   ContractNegotiationRespondResponse,
   ContractNegotiationResponse,
   ContractRejectResponse,
+  ContractRenewResponse,
   ContractRetrieveByIdResponse,
   ContractRetrieveResponse,
   ContractReviewResponse,
@@ -122,6 +124,14 @@ export const contractWorkflowService: ContractWorkflowService = {
 
   async terminate(request: ContractTerminateRequest) {
     return http.post<ContractTerminateResponse>('/contract/terminate', request).then((res) => res.data)
+  },
+
+  async renew(request: ContractRenewRequest) {
+    return http.post<ContractRenewResponse>('/contract/renew', request).then((res) => res.data)
+  },
+
+  async retrieveRenewals(did: string) {
+    return http.get<ContractRenewResponse[]>(`/contract/renewals/${encodeURIComponent(did)}`).then((res) => res.data)
   },
 
   async deploy(request: ContractDeployRequest) {

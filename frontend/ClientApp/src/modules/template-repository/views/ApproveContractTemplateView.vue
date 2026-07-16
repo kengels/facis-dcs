@@ -26,6 +26,9 @@ const hasChosenType = ref(false)
 
 const { isCreator, isManager: isManagerBase, isApprover } = useTemplatePermissions()
 const isManager = computed(() => hasDid.value && isManagerBase.value)
+const decisionReady = computed(
+  () => !!draftStore.did && !!draftStore.updated_at && (isApprover.value || isManager.value),
+)
 
 const contractTemplate: Ref<PartialContractTemplate | null> = ref(null)
 
@@ -188,14 +191,18 @@ const exportPDF = async () => {
     <!-- Pinned Footer -->
     <div v-if="hasDid" class="sticky bottom-0 shrink-0 border-t border-base-300 bg-base-100">
       <!-- Decision notes container -->
-      <ConfirmationModal ref="decision-note-dialog" />
+      <ConfirmationModal
+        ref="decision-note-dialog"
+        editor-test-id="template-approval-decision-note"
+        confirm-test-id="template-approval-decision-submit"
+      />
       <div class="mx-auto flex max-w-4xl flex-col gap-3 px-6 py-3 md:flex-row">
         <button class="btn btn-outline md:w-32" @click="router.back()">Back</button>
         <button class="btn btn-outline md:w-32" @click="exportPDF">Export PDF</button>
         <CopyTemplateButton :disabled="!isCreator && !isManager" class="btn flex-1 btn-primary" />
         <button
           data-test-id="template-approval-reject"
-          :disabled="isSubmitting || (!isApprover && !isManager)"
+          :disabled="isSubmitting || !decisionReady"
           class="btn flex-1 btn-primary"
           @click="reject"
         >
@@ -204,7 +211,7 @@ const exportPDF = async () => {
         </button>
         <button
           data-test-id="template-approval-resubmit"
-          :disabled="isSubmitting || (!isApprover && !isManager)"
+          :disabled="isSubmitting || !decisionReady"
           class="btn flex-1 btn-primary"
           @click="resubmit"
         >
@@ -213,7 +220,7 @@ const exportPDF = async () => {
         </button>
         <button
           data-test-id="template-approval-approve"
-          :disabled="isSubmitting || (!isApprover && !isManager)"
+          :disabled="isSubmitting || !decisionReady"
           class="btn flex-1 btn-primary"
           @click="approve"
         >

@@ -38,7 +38,7 @@ const responseMapper = (response: ContractTemplateSearchResponse) =>
     did: item.did,
     name: item.name,
     description: item.description,
-    version: parseInt(item.version, 10),
+    version: item.version,
     state: item.state,
     updated_at: item.updated_at,
     created_at: item.created_at,

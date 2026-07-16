@@ -60,8 +60,7 @@ func VerifyCredential(token string, disclosures []string, cfg TrustConfig) (jwt.
 	return MergeDisclosedClaims(issuerClaims, disclosures)
 }
 
-// VerifyCredentialForPID validates PID issuer JWTs, including playground credentials
-// that sign with x5c.
+// VerifyCredentialForPID validates PID issuer JWTs against the configured issuer trust anchors.
 func VerifyCredentialForPID(token string, disclosures []string, cfg TrustConfig) (jwt.MapClaims, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("issuer trust is not configured")
@@ -72,7 +71,7 @@ func VerifyCredentialForPID(token string, disclosures []string, cfg TrustConfig)
 		jwt.WithIssuedAt(),
 		jwt.WithValidMethods([]string{"ES256"}),
 	).Parse(token, func(t *jwt.Token) (any, error) {
-		return ResolveIssuerVerificationKeyForPID(t)
+		return ResolveIssuerVerificationKey(cfg, t)
 	})
 
 	if err != nil {

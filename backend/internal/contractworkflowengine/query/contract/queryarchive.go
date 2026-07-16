@@ -22,6 +22,12 @@ type GetArchivedContractsResult struct {
 	Contracts []db.ContractMetadata
 }
 
+type ArchiveDashboardResult struct {
+	Entries       []db.ContractArchiveEntry
+	Contracts     []db.ContractMetadata
+	RecentActions []db.ArchiveDashboardAction
+}
+
 type GetArchivedContractsHandler struct {
 	DB    *sqlx.DB
 	CRepo db.ContractRepo
@@ -29,6 +35,39 @@ type GetArchivedContractsHandler struct {
 
 type GetArchivedContractsQry struct {
 	RetrievedBy string
+}
+
+type GetArchiveDashboardHandler struct {
+	DB    *sqlx.DB
+	CRepo db.ContractRepo
+}
+
+func (h *GetArchiveDashboardHandler) Handle(ctx context.Context) (*ArchiveDashboardResult, error) {
+	tx, err := h.DB.BeginTxx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("could not create transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			log.Printf("could not rollback transaction: %v", err)
+		}
+	}()
+	entries, err := h.CRepo.ReadArchiveEntries(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("could not read archive entries: %w", err)
+	}
+	contracts, err := h.CRepo.ReadArchivedContracts(ctx, tx)
+	if err != nil {
+		return nil, fmt.Errorf("could not read archived contracts: %w", err)
+	}
+	actions, err := h.CRepo.ReadArchiveRecentActions(ctx, tx, conf.ArchiveDashboardRecentActionsLimit())
+	if err != nil {
+		return nil, fmt.Errorf("could not read recent archive actions: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("could not commit archive dashboard read: %w", err)
+	}
+	return &ArchiveDashboardResult{Entries: entries, Contracts: contracts, RecentActions: actions}, nil
 }
 
 type SearchArchivedContractsQry struct {

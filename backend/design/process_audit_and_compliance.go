@@ -189,4 +189,39 @@ var _ = Service("ProcessAuditAndCompliance", func() {
 		Error("bad_request", ErrorResult, "Bad request")
 		Error("internal_error", ErrorResult, "Internal server error")
 	})
+
+	Method("incident_list", func() {
+		Description("List persisted compliance incident cases.")
+		Meta("dcs:requirements", "DCS-IR-PACM-04")
+		Security(JWTAuth, func() { Scope("Compliance Officer") })
+		Payload(func() { Token("token", String, "JWT token") })
+		HTTP(func() { GET("/pac/incidents"); Response(StatusOK) })
+		Result(ArrayOfRequired(PACIncidentReportResponse))
+	})
+
+	Method("incident_get", func() {
+		Description("Retrieve one persisted compliance incident case.")
+		Meta("dcs:requirements", "DCS-IR-PACM-04")
+		Security(JWTAuth, func() { Scope("Compliance Officer") })
+		Payload(func() {
+			Token("token", String, "JWT token")
+			Attribute("incident_id", String, "Incident identifier")
+			Required("incident_id")
+		})
+		HTTP(func() { GET("/pac/incidents/{incident_id}"); Param("incident_id"); Response(StatusOK) })
+		Result(PACIncidentReportResponse)
+	})
+
+	Method("incident_export", func() {
+		Description("Export one persisted compliance incident case as JSON.")
+		Meta("dcs:requirements", "DCS-IR-PACM-04")
+		Security(JWTAuth, func() { Scope("Compliance Officer") })
+		Payload(func() {
+			Token("token", String, "JWT token")
+			Attribute("incident_id", String, "Incident identifier")
+			Required("incident_id")
+		})
+		HTTP(func() { GET("/pac/incidents/{incident_id}/export"); Param("incident_id"); Response(StatusOK) })
+		Result(Bytes)
+	})
 })

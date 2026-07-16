@@ -96,9 +96,13 @@ export interface ContractTemplateRegisterRequest {
   version?: number
 }
 
+export interface ContractTemplateDependencyValidateRequest {
+  template_did: string
+  reference_did: string
+}
+
 export interface ContractTemplateAuditRequest {
   did: string
-  updated_at: string
 }
 
 export interface ContractTemplatePublishRequest {

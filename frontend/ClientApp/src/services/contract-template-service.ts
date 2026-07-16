@@ -6,6 +6,7 @@ import type {
   ContractTemplateAuditRequest,
   ContractTemplateCopyRequest,
   ContractTemplateCreateRequest,
+  ContractTemplateDependencyValidateRequest,
   ContractTemplatePublishRequest,
   ContractTemplateRegisterRequest,
   ContractTemplateRejectRequest,
@@ -23,6 +24,7 @@ import type {
   ContractTemplateAuditResponse,
   ContractTemplateCopyResponse,
   ContractTemplateCreateResponse,
+  ContractTemplateDependencyValidateResponse,
   ContractTemplatePublishResponse,
   ContractTemplateRegisterResponse,
   ContractTemplateRejectResponse,
@@ -37,6 +39,12 @@ import type {
 import type { ContractTemplateService } from '@/models/services/contract-template-service'
 
 export const contractTemplateService: ContractTemplateService = {
+  async validateDependency(request: ContractTemplateDependencyValidateRequest) {
+    return http
+      .post<ContractTemplateDependencyValidateResponse>('/template/dependency/validate', request)
+      .then((res) => res.data)
+  },
+
   async create(request: ContractTemplateCreateRequest) {
     return http
       .post<ContractTemplateCreateResponse>('/template/create', request)
@@ -149,6 +157,14 @@ export const contractTemplateService: ContractTemplateService = {
         console.error('Audit Error:', err)
         return []
       })
+  },
+
+  async history(did: string) {
+    return http.get(`/template/history/${encodeURIComponent(did)}`).then((res) => res.data)
+  },
+
+  async provenance(did: string) {
+    return http.get(`/template/provenance/${encodeURIComponent(did)}`).then((res) => res.data)
   },
 
   async publish(request: ContractTemplatePublishRequest) {

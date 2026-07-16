@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,9 +30,11 @@ import (
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatetype"
 	"digital-contracting-service/internal/templaterepository/db"
+	"digital-contracting-service/internal/templaterepository/dependency"
 	"digital-contracting-service/internal/templaterepository/query/contracttemplate"
 
 	"github.com/jmoiron/sqlx"
+	"goa.design/clue/log"
 )
 
 // TemplateRepository service example implementation.
@@ -72,10 +75,49 @@ func NewTemplateRepository(db *sqlx.DB, jwtAuth auth.JWTAuthenticator, CTRepo db
 // ontology-prefix conflict, DCS-FR-TR-03) to bad_request; everything else
 // stays an internal error.
 func mapTemplateCommandError(err error) error {
-	if errors.Is(err, validation.ErrDocumentSchemaConflict) {
+	if errors.Is(err, validation.ErrDocumentSchemaConflict) ||
+		errors.Is(err, dependency.ErrInvalidDID) ||
+		errors.Is(err, dependency.ErrTemplateNotFound) ||
+		errors.Is(err, dependency.ErrCycle) {
 		return templaterepository.MakeBadRequest(err)
 	}
 	return templaterepository.MakeInternalError(err)
+}
+
+func (s *templateRepositorysrvc) ValidateDependency(ctx context.Context, req *templaterepository.ContractTemplateDependencyValidateRequest) (*templaterepository.ContractTemplateDependencyValidateResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
+	defer cancel()
+	tx, err := s.DB.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, templaterepository.MakeInternalError(err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			log.Printf(ctx, "rollback failed: %v", err)
+		}
+	}()
+
+	template, err := dependency.ValidateReference(ctx, tx, s.CTRepo, req.TemplateDid, req.ReferenceDid)
+	if err != nil {
+		switch {
+		case errors.Is(err, dependency.ErrInvalidDID):
+			return nil, templaterepository.MakeInvalidDependencyDid(err)
+		case errors.Is(err, dependency.ErrTemplateNotFound):
+			return nil, templaterepository.MakeDependencyTemplateNotFound(err)
+		case errors.Is(err, dependency.ErrCycle):
+			return nil, templaterepository.MakeDependencyCycle(err)
+		default:
+			return nil, templaterepository.MakeInternalError(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, templaterepository.MakeInternalError(err)
+	}
+	return &templaterepository.ContractTemplateDependencyValidateResponse{
+		Valid: true, Did: template.DID, DocumentNumber: template.DocumentNumber,
+		Version: template.Version, Name: template.Name, Description: template.Description,
+		TemplateData: template.TemplateData,
+	}, nil
 }
 
 func (s *templateRepositorysrvc) Create(ctx context.Context, req *templaterepository.ContractTemplateCreateRequest) (*templaterepository.ContractTemplateCreateResponse, error) {
@@ -370,6 +412,7 @@ func (s *templateRepositorysrvc) Search(ctx context.Context, req *templatereposi
 			TemplateType:   item.TemplateType.String(),
 			Name:           item.Name,
 			Description:    item.Description,
+			CreatedBy:      item.CreatedBy,
 			CreatedAt:      item.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:      item.UpdatedAt.Format(time.RFC3339),
 		})
@@ -784,7 +827,7 @@ func (s *templateRepositorysrvc) Audit(ctx context.Context, req *templatereposit
 			EventType:        entry.EventType,
 			EventData:        entry.EventData,
 			Did:              entry.DID,
-			CreatedAt:        entry.CreatedAt.String(),
+			CreatedAt:        formatAPITimestamp(entry.CreatedAt),
 			GlobalLogPredCid: entry.GlobalLogPredCID,
 			ResLogPredCid:    entry.ResLogPredCID,
 		})

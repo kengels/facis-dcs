@@ -5,6 +5,8 @@ import { computed, type Ref, ref, useTemplateRef, watch } from 'vue'
 defineProps<{
   editorTestId?: string
   confirmTestId?: string
+  dialogTestId?: string
+  testKey?: string
 }>()
 
 interface Editor {
@@ -65,7 +67,7 @@ defineExpose<ModalExpose>({ reveal: reveal })
 </script>
 
 <template>
-  <dialog ref="action-modal" class="modal modal-bottom sm:modal-middle" @close="cancel">
+  <dialog ref="action-modal" :data-test-id="dialogTestId" class="modal modal-bottom sm:modal-middle" @close="cancel">
     <div class="modal-box">
       <h3 class="text-lg font-bold">Confirmation</h3>
       <p class="text-md py-4">{{ modalData.message }}</p>
@@ -81,6 +83,7 @@ defineExpose<ModalExpose>({ reveal: reveal })
       <div class="modal-action flex-col" :class="{ 'flex-row-reverse justify-start': hasEditor }">
         <button
           :data-test-id="confirmTestId"
+          :data-test-key="testKey"
           class="btn btn-sm btn-primary"
           :class="{ 'btn-disabled': inputRequired }"
           :disabled="inputRequired"

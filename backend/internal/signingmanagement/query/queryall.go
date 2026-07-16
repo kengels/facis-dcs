@@ -16,6 +16,7 @@ import (
 	"digital-contracting-service/internal/base/datatype/componenttype"
 	"digital-contracting-service/internal/base/datatype/userrole"
 	"digital-contracting-service/internal/base/event"
+	"digital-contracting-service/internal/base/validation"
 	"digital-contracting-service/internal/contractworkflowengine/datatype/contractstate"
 	"digital-contracting-service/internal/contractworkflowengine/datatype/expirationpolicy"
 	"digital-contracting-service/internal/signingmanagement/datatype/signingstatus"
@@ -54,6 +55,10 @@ type SigningTaskItem struct {
 	SignerDID       string
 	FieldName       string
 	CreatedAt       time.Time
+	Order           int
+	Dependency      *string
+	Deadline        *time.Time
+	SignedAt        *time.Time
 }
 
 type GetAllMetadataResult struct {
@@ -89,11 +94,6 @@ func (h *GetAllMetadataHandler) Handle(ctx context.Context, query GetAllMetadata
 		}
 	}
 
-	signingTasks, err := h.CRepo.ReadAllSigningTasks(ctx, tx)
-	if err != nil {
-		return nil, fmt.Errorf("could not read all signing tasks: %w", err)
-	}
-
 	evt := signingmanagementevents.RetrieveAllEvent{
 		RetrievedBy: query.RetrievedBy,
 		OccurredAt:  time.Now().UTC(),
@@ -105,12 +105,6 @@ func (h *GetAllMetadataHandler) Handle(ctx context.Context, query GetAllMetadata
 		return nil, fmt.Errorf("could not create event: %w", err)
 	}
 
-	err = tx.Commit()
-	if err != nil {
-		return nil, fmt.Errorf("could not commit transaction: %w", err)
-	}
-
-	didToMetadata := make(map[string]MetadataItem)
 	var contractItems []MetadataItem
 	for _, data := range contractsMetadata {
 
@@ -144,36 +138,64 @@ func (h *GetAllMetadataHandler) Handle(ctx context.Context, query GetAllMetadata
 			Responsible:     data.Responsible,
 		}
 		contractItems = append(contractItems, metadata)
-
-		didToMetadata[data.DID] = metadata
 	}
 
 	var signingTaskItems []SigningTaskItem
-	for _, data := range signingTasks {
-
-		state, err := signingstatus.NewSigningStatus(data.State)
+	for _, data := range contractsMetadata {
+		if data.ContractData == nil {
+			continue
+		}
+		signatures, err := h.CRepo.LoadSignatures(ctx, tx, data.DID)
 		if err != nil {
-			return nil, fmt.Errorf("could not create signing status: %w", err)
+			return nil, fmt.Errorf("could not read signatures for %s: %w", data.DID, err)
 		}
-
-		metadata, exists := didToMetadata[data.ContractDID]
-		var contractVersion int
-		if exists {
-			contractVersion = metadata.ContractVersion
+		derived, err := deriveSigningTaskItems(data, signatures)
+		if err != nil {
+			return nil, err
 		}
+		signingTaskItems = append(signingTaskItems, derived...)
+	}
 
-		signingTaskItems = append(signingTaskItems, SigningTaskItem{
-			DID:             data.ContractDID,
-			State:           state,
-			ContractVersion: contractVersion,
-			SignerDID:       data.SignerDID,
-			FieldName:       data.FieldName,
-			CreatedAt:       data.CreatedAt,
-		})
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("could not commit transaction: %w", err)
 	}
 
 	return &GetAllMetadataResult{
 		Contracts:    contractItems,
 		SigningTasks: signingTaskItems,
 	}, nil
+}
+
+func deriveSigningTaskItems(data db.ContractMetadata, signatures []db.SignatureRecord) ([]SigningTaskItem, error) {
+	if data.ContractData == nil {
+		return nil, nil
+	}
+	signaturesByField := make(map[string]db.SignatureRecord)
+	for _, signature := range signatures {
+		if signature.FieldName != nil {
+			signaturesByField[*signature.FieldName] = signature
+		}
+	}
+	declarations := validation.DeclaredSignatureFields(*data.ContractData)
+	items := make([]SigningTaskItem, 0, len(declarations))
+	for _, declaration := range declarations {
+		state := signingstatus.Pending
+		signerDID := ""
+		var signedAt *time.Time
+		if signature, exists := signaturesByField[declaration.Name]; exists {
+			var err error
+			state, err = signingstatus.NewSigningStatus(signature.Status)
+			if err != nil {
+				return nil, fmt.Errorf("could not create signing status: %w", err)
+			}
+			signerDID = signature.SignerDID
+			signedAt = signature.SignedAt
+		}
+		items = append(items, SigningTaskItem{
+			DID: data.DID, ContractVersion: data.ContractVersion, State: state,
+			SignerDID: signerDID, FieldName: declaration.Name, CreatedAt: data.CreatedAt,
+			Order: declaration.Order, Dependency: declaration.Dependency, Deadline: data.ExpDate, SignedAt: signedAt,
+		})
+	}
+	return items, nil
 }

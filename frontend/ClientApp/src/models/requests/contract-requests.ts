@@ -89,6 +89,8 @@ export interface ContractRejectRequest {
 export interface ContractStoreRequest {
   did: string
   updated_at: string
+  evidence_type: string
+  reference: string
 }
 
 export interface ContractTerminateRequest {
@@ -96,6 +98,15 @@ export interface ContractTerminateRequest {
   updated_at: string
   /** Reason for terminating the contract */
   reason: string
+}
+
+export interface ContractRenewRequest {
+  did: string
+  updated_at: string
+  new_start_date?: string
+  new_exp_date?: string
+  new_exp_policy?: ExpirationPolicy
+  new_exp_notice_period?: number
 }
 
 export interface ContractAuditRequest {

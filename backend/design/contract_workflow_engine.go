@@ -462,16 +462,23 @@ var ContractStoreRequest = Type("ContractStoreRequest", func() {
 
 	Attribute("did", String, "Decentralized Identifier of the contract")
 	Attribute("updated_at", String, "Updated at")
+	Attribute("evidence_type", String, "Evidence classification", func() {
+		Enum("supporting-document", "execution-receipt", "compliance-record")
+	})
+	Attribute("reference", String, "Stable evidence reference", func() { MinLength(1) })
 
-	Required("did", "updated_at")
+	Required("did", "updated_at", "evidence_type", "reference")
 })
 
 var ContractStoreResponse = Type("ContractStoreResponse", func() {
 	Description("Result for store evidence")
 
 	Attribute("did", String, "Decentralized Identifier of the contract")
+	Attribute("evidence_type", String, "Persisted evidence classification")
+	Attribute("reference", String, "Persisted evidence reference")
+	Attribute("recorded_at", String, "Server timestamp of the evidence event")
 
-	Required("did")
+	Required("did", "evidence_type", "reference", "recorded_at")
 })
 
 var ContractTerminateRequest = Type("ContractTerminateRequest", func() {
@@ -490,8 +497,9 @@ var ContractTerminateResponse = Type("ContractTerminateResponse", func() {
 	Description("Result for terminating a contract")
 
 	Attribute("did", String, "Decentralized Identifier of the contract")
+	Attribute("state", String, "Authoritative contract state after termination")
 
-	Required("did")
+	Required("did", "state")
 })
 
 var ContractRenewRequest = Type("ContractRenewRequest", func() {
@@ -1086,6 +1094,7 @@ var _ = Service("ContractWorkflowEngine", func() {
 		Security(JWTAuth, func() {
 			Scope("Contract Manager")
 			Scope("Sys. Contract Manager")
+			Scope("Archive Manager")
 		})
 
 		Payload(ContractTerminateRequest)
@@ -1127,6 +1136,23 @@ var _ = Service("ContractWorkflowEngine", func() {
 		})
 	})
 
+	Method("retrieve_renewals", func() {
+		Description("Retrieve renewal contracts linked to an original contract.")
+		Meta("dcs:requirements", "DCS-FR-CWE-11", "DCS-FR-CWE-22", "DCS-FR-CSA-23")
+		Security(JWTAuth, func() { Scope("Contract Manager") })
+		Payload(func() {
+			Token("token", String, "JWT token")
+			Attribute("did", String, "Original contract DID")
+			Required("did")
+		})
+		HTTP(func() {
+			GET("/contract/renewals/{did}")
+			Param("did")
+			Response(StatusOK)
+		})
+		Result(ArrayOfRequired(ContractRenewResponse))
+	})
+
 	Method("audit", func() {
 		Description("retrieve the audit trail (event log and policy trail) for a contract.")
 		Meta("dcs:requirements", "DCS-IR-CWE-12", "DCS-IR-CWE-13")
@@ -1136,6 +1162,9 @@ var _ = Service("ContractWorkflowEngine", func() {
 		Security(JWTAuth, func() {
 			Scope("Auditor")
 			Scope("Compliance Officer")
+			Scope("Contract Manager")
+			Scope("Contract Reviewer")
+			Scope("Contract Approver")
 		})
 
 		Payload(ContractAuditRequest)
