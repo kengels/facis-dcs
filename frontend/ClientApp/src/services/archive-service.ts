@@ -53,20 +53,113 @@ export interface ArchiveDashboardSummary {
     archive_entries: number
     entries_with_proof: number
     entries_without_proof: number
+    non_compliant_entries: number
   }
+  storage_bytes: number
+  open_alerts: number
+  renewal_due: number
   source: string
   generated_at: string
+}
+
+export interface ArchiveSearchFilters {
+  did?: string
+  name?: string
+  state?: string
+  tag?: string
+  party?: string
+  contract_type?: string
+  jurisdiction?: string
+  parent_did?: string
+  valid_from?: string
+  valid_to?: string
+}
+
+export interface ArchiveAlert {
+  id: string
+  did: string
+  contract_version: number
+  alert_type: string
+  due_at?: string
+  message: string
+  created_at: string
+  acknowledged_at?: string
+  acknowledged_by?: string
+}
+
+export interface ArchiveMonitoringPreferences {
+  enabled: boolean
+  notice_days: number
+  updated_at: string
+}
+
+export interface ArchiveSavedQuery {
+  id: string
+  name: string
+  filters: ArchiveSearchFilters
+  created_at: string
+  updated_at: string
+}
+
+export interface ArchiveComponent {
+  id: string
+  did: string
+  contract_version: number
+  component_iri: string
+  party_ids: string[]
+  component_snapshot: unknown
+  content_hash: string
 }
 
 export const archiveService = {
   async retrieve(): Promise<ArchiveContract[]> {
     return http.get<{ contracts?: ArchiveContract[] }>('/archive/retrieve').then((res) => res.data.contracts ?? [])
   },
-  async search(params: { did?: string; name?: string; state?: string; tag?: string }): Promise<ArchiveContract[]> {
+  async search(params: ArchiveSearchFilters): Promise<ArchiveContract[]> {
     return http.get<ArchiveContract[]>('/archive/search', { params }).then((res) => res.data)
   },
   async dashboard(): Promise<ArchiveDashboardSummary> {
     return http.get<ArchiveDashboardSummary>('/archive/dashboard').then((res) => res.data)
+  },
+  async alerts(includeAcknowledged = false): Promise<ArchiveAlert[]> {
+    return http
+      .get<ArchiveAlert[]>('/archive/alerts', { params: { include_acknowledged: includeAcknowledged } })
+      .then((res) => res.data)
+  },
+  async acknowledgeAlert(id: string): Promise<ArchiveAlert> {
+    return http.post<ArchiveAlert>(`/archive/alerts/${encodeURIComponent(id)}/acknowledge`).then((res) => res.data)
+  },
+  async monitoringPreferences(): Promise<ArchiveMonitoringPreferences> {
+    return http.get<ArchiveMonitoringPreferences>('/archive/monitoring-preferences').then((res) => res.data)
+  },
+  async setMonitoringPreferences(enabled: boolean, noticeDays: number): Promise<ArchiveMonitoringPreferences> {
+    return http
+      .put<ArchiveMonitoringPreferences>('/archive/monitoring-preferences', {
+        enabled,
+        notice_days: noticeDays,
+      })
+      .then((res) => res.data)
+  },
+  async setRetention(did: string, retentionUntil: string, justification: string) {
+    return http
+      .put<{ did: string; retention_until: string; archive_status: string }>('/archive/retention', {
+        did,
+        retention_until: retentionUntil,
+        justification,
+      })
+      .then((res) => res.data)
+  },
+  async savedQueries(): Promise<ArchiveSavedQuery[]> {
+    return http.get<ArchiveSavedQuery[]>('/archive/saved-queries').then((res) => res.data)
+  },
+  async saveQuery(name: string, filters: ArchiveSearchFilters): Promise<ArchiveSavedQuery> {
+    return http.post<ArchiveSavedQuery>('/archive/saved-queries', { name, filters }).then((res) => res.data)
+  },
+  async deleteSavedQuery(id: string): Promise<boolean> {
+    return http.delete<boolean>(`/archive/saved-queries/${encodeURIComponent(id)}`).then((res) => res.data)
+  },
+  async components(did: string): Promise<ArchiveComponent[]> {
+    return http.get<ArchiveComponent[]>(`/archive/components/${encodeURIComponent(did)}`).then((res) => res.data)
   },
   async annotate(did: string, summary: string, tags: string[]) {
     return http

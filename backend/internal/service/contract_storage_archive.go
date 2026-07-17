@@ -91,6 +91,14 @@ func (s *contractStorageArchivesrvc) Search(ctx context.Context, p *contractstor
 		}
 		state = &tState
 	}
+	validFrom, err := parseArchiveSearchTime(p.ValidFrom)
+	if err != nil {
+		return nil, contractstoragearchive.MakeBadRequest(fmt.Errorf("valid_from: %w", err))
+	}
+	validTo, err := parseArchiveSearchTime(p.ValidTo)
+	if err != nil {
+		return nil, contractstoragearchive.MakeBadRequest(fmt.Errorf("valid_to: %w", err))
+	}
 
 	qry := contract.SearchArchivedContractsQry{
 		DID:             stringValue(p.Did),
@@ -101,6 +109,12 @@ func (s *contractStorageArchivesrvc) Search(ctx context.Context, p *contractstor
 		Description:     stringValue(p.Description),
 		ContractData:    stringValue(p.ContractData),
 		Tag:             stringValue(p.Tag),
+		Party:           stringValue(p.Party),
+		ContractType:    stringValue(p.ContractType),
+		Jurisdiction:    stringValue(p.Jurisdiction),
+		ParentDID:       stringValue(p.ParentDid),
+		ValidFrom:       validFrom,
+		ValidTo:         validTo,
 	}
 	queryHandler := contract.GetArchivedContractsHandler{
 		DB:    s.DB,
@@ -128,6 +142,9 @@ func (s *contractStorageArchivesrvc) Dashboard(ctx context.Context, _ *contracts
 	ctx, cancel := context.WithTimeout(ctx, conf.TransactionTimeout())
 	defer cancel()
 
+	if err := s.refreshArchiveAlerts(ctx); err != nil {
+		return nil, contractstoragearchive.MakeInternalError(err)
+	}
 	result, err := (&contract.GetArchiveDashboardHandler{DB: s.DB, CRepo: s.CRepo}).Handle(ctx)
 	if err != nil {
 		return nil, contractstoragearchive.MakeInternalError(err)
@@ -154,6 +171,7 @@ func (s *contractStorageArchivesrvc) Dashboard(ctx context.Context, _ *contracts
 
 	archiveEntries := 0
 	entriesWithProof := 0
+	nonCompliant := 0
 	for _, entry := range result.Entries {
 		if entry.ArchiveStatus == archivestatus.Deleted.String() {
 			continue
@@ -162,6 +180,20 @@ func (s *contractStorageArchivesrvc) Dashboard(ctx context.Context, _ *contracts
 		if archiveContentHashPattern.MatchString(entry.ContentHash) && strings.TrimSpace(entry.SnapshotCID) != "" {
 			entriesWithProof++
 		}
+		if entry.ComplianceStatus == "NON_COMPLIANT" {
+			nonCompliant++
+		}
+	}
+	var storageBytes int64
+	var openAlerts, renewalDue int
+	if err := s.DB.GetContext(ctx, &storageBytes, `SELECT COALESCE(SUM(pg_column_size(contract_snapshot) + pg_column_size(evidence) + pg_column_size(signature_metadata) + pg_column_size(tsa_receipt)),0) FROM contract_archive_entries WHERE archive_status <> 'DELETED'`); err != nil {
+		return nil, contractstoragearchive.MakeInternalError(err)
+	}
+	if err := s.DB.GetContext(ctx, &openAlerts, `SELECT COUNT(*) FROM archive_alerts WHERE acknowledged_at IS NULL`); err != nil {
+		return nil, contractstoragearchive.MakeInternalError(err)
+	}
+	if err := s.DB.GetContext(ctx, &renewalDue, `SELECT COUNT(*) FROM archive_alerts WHERE acknowledged_at IS NULL AND alert_type='RENEWAL_DUE'`); err != nil {
+		return nil, contractstoragearchive.MakeInternalError(err)
 	}
 
 	return &contractstoragearchive.ArchiveDashboardResponse{
@@ -170,7 +202,9 @@ func (s *contractStorageArchivesrvc) Dashboard(ctx context.Context, _ *contracts
 		Compliance: &contractstoragearchive.ArchiveDashboardComplianceSummary{
 			ArchiveEntries: archiveEntries, EntriesWithProof: entriesWithProof,
 			EntriesWithoutProof: archiveEntries - entriesWithProof,
+			NonCompliantEntries: nonCompliant,
 		},
+		StorageBytes: storageBytes, OpenAlerts: openAlerts, RenewalDue: renewalDue,
 		Source: "server", GeneratedAt: now.Format(time.RFC3339Nano),
 	}, nil
 }
@@ -355,23 +389,38 @@ func toArchiveContractItem(item db.ContractMetadata) *contractstoragearchive.Con
 	}
 
 	return &contractstoragearchive.ContractItem{
-		Did:             item.DID,
-		ContractVersion: item.ContractVersion,
-		State:           item.State,
-		Name:            item.Name,
-		Description:     item.Description,
-		CreatedBy:       item.CreatedBy,
-		CreatedAt:       item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:       item.UpdatedAt.Format(time.RFC3339),
-		StartDate:       startDate,
-		ExpDate:         expDate,
-		ExpPolicy:       expPolicy,
-		ExpNoticePeriod: item.ExpNoticePeriod,
-		Responsible:     item.Responsible,
-		Evidence:        archiveEvidenceValue(item.Evidence),
-		ArchiveSummary:  item.ArchiveSummary,
-		ArchiveTags:     decodeArchiveTags(item.ArchiveTags),
+		Did:               item.DID,
+		ContractVersion:   item.ContractVersion,
+		State:             item.State,
+		Name:              item.Name,
+		Description:       item.Description,
+		CreatedBy:         item.CreatedBy,
+		CreatedAt:         item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:         item.UpdatedAt.Format(time.RFC3339),
+		StartDate:         startDate,
+		ExpDate:           expDate,
+		ExpPolicy:         expPolicy,
+		ExpNoticePeriod:   item.ExpNoticePeriod,
+		Responsible:       item.Responsible,
+		TemplateDid:       item.TemplateDID,
+		TemplateVersion:   item.TemplateVersion,
+		ParentContractDid: item.ParentContractDID,
+		Evidence:          archiveEvidenceValue(item.Evidence),
+		ArchiveSummary:    item.ArchiveSummary,
+		ArchiveTags:       decodeArchiveTags(item.ArchiveTags),
 	}
+}
+
+func parseArchiveSearchTime(value *string) (*time.Time, error) {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*value))
+	if err != nil {
+		return nil, fmt.Errorf("must be an RFC3339 timestamp")
+	}
+	parsed = parsed.UTC()
+	return &parsed, nil
 }
 
 // generateArchiveSummary derives the automatic half of DCS-FR-CSA-11 from

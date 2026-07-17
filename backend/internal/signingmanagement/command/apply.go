@@ -543,6 +543,20 @@ func (h *Applier) archiveSignedContract(ctx context.Context, tx *sqlx.Tx, did st
 	if err := h.ArchiveRepo.StoreArchiveEntry(ctx, tx, archiveEntry); err != nil {
 		return fmt.Errorf("could not store contract in archive: %w", err)
 	}
+	components, err := cwecommand.BuildArchiveComponents(signedContract.ContractData)
+	if err != nil {
+		return fmt.Errorf("could not build archive components: %w", err)
+	}
+	for _, component := range components {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO archive_components
+				(did, contract_version, component_iri, party_ids, component_snapshot, content_hash)
+			VALUES ($1,$2,$3,$4,$5,$6)
+			ON CONFLICT (did, contract_version, component_iri) DO NOTHING
+		`, did, signedContract.ContractVersion, component.IRI, component.PartyIDs, component.Snapshot, component.ContentHash); err != nil {
+			return fmt.Errorf("could not store archive component %s: %w", component.IRI, err)
+		}
+	}
 
 	var notaryEventReceipt *cweevent.ArchiveNotaryReceipt
 	if notaryReceipt != nil {

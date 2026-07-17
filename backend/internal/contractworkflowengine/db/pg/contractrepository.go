@@ -299,8 +299,9 @@ func (r *PostgresContractRepo) StoreArchiveEntry(ctx context.Context, tx *sqlx.T
 	statement := `
         INSERT INTO contract_archive_entries (
             did, contract_version, stored_by, stored_at, contract_snapshot, content_hash, snapshot_cid, signature_metadata,
-            credential_hashes, tsa_receipt, evidence, retention_until
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::jsonb, '{}'::jsonb), COALESCE($9::jsonb, '{}'::jsonb), COALESCE($10::jsonb, '{}'::jsonb), COALESCE($11::jsonb, '{}'::jsonb), $12)
+            credential_hashes, tsa_receipt, evidence, retention_until, parent_contract_did, parties, contract_type,
+            jurisdiction, compliance_status
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::jsonb, '{}'::jsonb), COALESCE($9::jsonb, '{}'::jsonb), COALESCE($10::jsonb, '{}'::jsonb), COALESCE($11::jsonb, '{}'::jsonb), $12, $13, COALESCE($14::jsonb, '[]'::jsonb), $15, $16, $17)
         ON CONFLICT (did, contract_version) DO NOTHING
     `
 	_, err := tx.ExecContext(ctx, statement,
@@ -316,6 +317,11 @@ func (r *PostgresContractRepo) StoreArchiveEntry(ctx context.Context, tx *sqlx.T
 		data.TSAReceipt,
 		data.Evidence,
 		data.RetentionUntil,
+		data.ParentContractDID,
+		data.Parties,
+		data.ContractType,
+		data.Jurisdiction,
+		data.ComplianceStatus,
 	)
 	return err
 }
@@ -324,6 +330,7 @@ func (r *PostgresContractRepo) ReadArchiveEntries(ctx context.Context, tx *sqlx.
 	query := `
         SELECT did, contract_version, archive_status, stored_by, stored_at, contract_snapshot,
                content_hash, snapshot_cid, snapshot_cid_created_at, signature_metadata, credential_hashes, tsa_receipt, evidence, retention_until,
+               parent_contract_did, parties, contract_type, jurisdiction, compliance_status,
                deleted_at, deleted_by, deletion_reason
         FROM contract_archive_entries
         ORDER BY stored_at, did, contract_version
@@ -407,7 +414,7 @@ func (r *PostgresContractRepo) ReadSignedSignatureFieldNames(ctx context.Context
 
 func (r *PostgresContractRepo) ReadArchivedContracts(ctx context.Context, tx *sqlx.Tx) ([]db.ContractMetadata, error) {
 	query := `
-	    SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, evidence, archive_summary, archive_tags
+	    SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, template_did, template_version, parent_contract_did, evidence, archive_summary, archive_tags
     FROM contracts_archive_metadata
 	`
 	var cts []db.ContractMetadata
@@ -421,7 +428,7 @@ func (r *PostgresContractRepo) ReadArchivedContracts(ctx context.Context, tx *sq
 
 func (r *PostgresContractRepo) ReadArchivedContractsByFilter(ctx context.Context, tx *sqlx.Tx, values db.SearchValues) ([]db.ContractMetadata, error) {
 	query := `
-	        SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, evidence, archive_summary, archive_tags
+	        SELECT did, state, name, description, created_by, created_at, updated_at, contract_version, start_date, exp_date, exp_policy, exp_notice_period, responsible, template_did, template_version, parent_contract_did, evidence, archive_summary, archive_tags
         FROM contracts_archive_metadata
     `
 	conditions, params, err := createSearchConditions(values)
@@ -530,11 +537,37 @@ func createSearchConditions(values db.SearchValues) (*string, []interface{}, err
 		paramIndex++
 	}
 	if len(values.ParentDID) > 0 {
-		// Reverse-index over locally held children: match the child's stored
-		// dcs:parentContract @id in contracts_effective. Kept as a DID-scoped
-		// subquery so it composes with any outer metadata/archive table.
-		conditions += ` did IN (SELECT did FROM contracts_effective WHERE regexp_replace(contract_data->'dcs:parentContract'->>'@id', '^.*/', '') = $` + strconv.Itoa(paramIndex) + `) AND`
+		if values.ArchiveOnly {
+			conditions += ` parent_contract_did = $` + strconv.Itoa(paramIndex) + ` AND`
+		} else {
+			conditions += ` did IN (SELECT did FROM contracts_effective WHERE regexp_replace(contract_data->'dcs:parentContract'->>'@id', '^.*/', '') = $` + strconv.Itoa(paramIndex) + `) AND`
+		}
 		params = append(params, values.ParentDID)
+		paramIndex++
+	}
+	if len(values.Party) > 0 {
+		conditions += ` archive_parties @> jsonb_build_array(jsonb_build_object('@id', $` + strconv.Itoa(paramIndex) + `::text)) AND`
+		params = append(params, values.Party)
+		paramIndex++
+	}
+	if len(values.ContractType) > 0 {
+		conditions += ` archive_contract_type = $` + strconv.Itoa(paramIndex) + ` AND`
+		params = append(params, values.ContractType)
+		paramIndex++
+	}
+	if len(values.Jurisdiction) > 0 {
+		conditions += ` archive_jurisdiction = $` + strconv.Itoa(paramIndex) + ` AND`
+		params = append(params, values.Jurisdiction)
+		paramIndex++
+	}
+	if values.ValidFrom != nil {
+		conditions += ` start_date >= $` + strconv.Itoa(paramIndex) + ` AND`
+		params = append(params, *values.ValidFrom)
+		paramIndex++
+	}
+	if values.ValidTo != nil {
+		conditions += ` exp_date <= $` + strconv.Itoa(paramIndex) + ` AND`
+		params = append(params, *values.ValidTo)
 	}
 	l := len(" AND")
 	if len(conditions) > l {

@@ -146,6 +146,10 @@ messaging:
     name: ""
     key: "NATS_URL"
 
+archive:
+  # Used only when a contract has no exp_notice_period of its own.
+  defaultNoticeDays: 30
+
 # Service discovery overrides – all auto-wired when the sub-charts below are enabled
 serviceDiscovery:
   postgresqlHost: ""

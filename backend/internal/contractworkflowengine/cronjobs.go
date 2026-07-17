@@ -23,6 +23,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 
+	baseconf "digital-contracting-service/internal/base/conf"
 	"digital-contracting-service/internal/base/datatype/componenttype"
 	"digital-contracting-service/internal/base/event"
 	"digital-contracting-service/internal/contractworkflowengine/conf"
@@ -117,11 +118,20 @@ func startExpiryScheduler(ctx context.Context, db *sqlx.DB, repo database.Contra
 
 		switch *policy {
 		case expirationpolicy.Renewal:
-			fmt.Printf("ToDo: call renewal logic for expired contract with DID %s\n", expiredContract.DID)
+			if err := insertArchiveAlert(ctx, tx, expiredContract, "RENEWAL_DUE", "Contract renewal is due"); err != nil {
+				return err
+			}
 		case expirationpolicy.Archiving:
-			fmt.Printf("ToDo: call archiving logic for expired contract with DID %s\n", expiredContract.DID)
+			if _, err := tx.ExecContext(ctx, `UPDATE contract_archive_entries SET archive_status='RETAINED' WHERE did=$1 AND archive_status='STORED'`, expiredContract.DID); err != nil {
+				return fmt.Errorf("retain expired archive entry %s: %w", expiredContract.DID, err)
+			}
 		case expirationpolicy.Termination:
-			fmt.Printf("ToDo: call termination logic for expired contract with DID %s\n", expiredContract.DID)
+			// EXPIRED is the terminal, read-only state required by CSA-14. The
+			// policy is preserved on the contract and in ContractExpired rather
+			// than silently rewriting legal termination metadata as a user action.
+		}
+		if err := insertArchiveAlert(ctx, tx, expiredContract, "EXPIRED", "Contract has expired and is no longer active"); err != nil {
+			return err
 		}
 
 		return tx.Commit()
@@ -129,6 +139,9 @@ func startExpiryScheduler(ctx context.Context, db *sqlx.DB, repo database.Contra
 
 	ticker := time.NewTicker(interval)
 	for range ticker.C {
+		if err := materializeUpcomingArchiveAlerts(ctx, db); err != nil {
+			log.Printf("could not refresh archive alerts: %v", err)
+		}
 
 		expiredContracts, err := readExpiredContracts()
 		if err != nil {
@@ -147,4 +160,48 @@ func startExpiryScheduler(ctx context.Context, db *sqlx.DB, repo database.Contra
 			}
 		}
 	}
+}
+
+func insertArchiveAlert(ctx context.Context, tx *sqlx.Tx, contract database.ContractMetadata, alertType, message string) error {
+	if contract.ExpDate == nil {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `
+		WITH inserted AS (
+			INSERT INTO archive_alerts (did,contract_version,alert_type,due_at,message)
+			VALUES ($1,$2,$3,$4,$5)
+			ON CONFLICT (did,contract_version,alert_type,due_at) DO NOTHING
+			RETURNING id,did,contract_version,alert_type,due_at,message
+		)
+		INSERT INTO outbox_events (component,event_type,event_data,did)
+		SELECT $6,'ARCHIVE_ALERT_RAISED',jsonb_build_object(
+			'alert_id',id,'did',did,'contract_version',contract_version,
+			'alert_type',alert_type,'due_at',due_at,'message',message
+		),did FROM inserted`,
+		contract.DID, contract.ContractVersion, alertType, contract.ExpDate.UTC(), message,
+		componenttype.ContractStorageArchive.String())
+	if err != nil {
+		return fmt.Errorf("store archive alert for %s: %w", contract.DID, err)
+	}
+	return nil
+}
+
+func materializeUpcomingArchiveAlerts(ctx context.Context, db *sqlx.DB) error {
+	_, err := db.ExecContext(ctx, `
+		WITH inserted AS (
+			INSERT INTO archive_alerts (did,contract_version,alert_type,due_at,message)
+			SELECT did,contract_version,
+				CASE WHEN exp_policy='RENEWAL' THEN 'RENEWAL_DUE' ELSE 'EXPIRY_DUE' END,
+				exp_date,
+				CASE WHEN exp_policy='RENEWAL' THEN 'Contract renewal is due' ELSE 'Contract approaches its configured expiration date' END
+			FROM contracts_archive_metadata
+			WHERE exp_date > NOW() AND exp_date <= NOW() + make_interval(days => COALESCE(exp_notice_period,$1))
+			ON CONFLICT (did,contract_version,alert_type,due_at) DO NOTHING
+			RETURNING id,did,contract_version,alert_type,due_at,message
+		)
+		INSERT INTO outbox_events (component,event_type,event_data,did)
+		SELECT $2,'ARCHIVE_ALERT_RAISED',jsonb_build_object('alert_id',id,'did',did,'contract_version',contract_version,'alert_type',alert_type,'due_at',due_at,'message',message),did
+		FROM inserted
+	`, baseconf.ArchiveDefaultNoticeDays(), componenttype.ContractStorageArchive.String())
+	return err
 }

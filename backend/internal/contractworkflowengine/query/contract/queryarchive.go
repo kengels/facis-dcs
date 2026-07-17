@@ -79,6 +79,12 @@ type SearchArchivedContractsQry struct {
 	Description     string
 	ContractData    string
 	Tag             string
+	Party           string
+	ContractType    string
+	Jurisdiction    string
+	ParentDID       string
+	ValidFrom       *time.Time
+	ValidTo         *time.Time
 }
 
 func (h *GetArchivedContractsHandler) Handle(ctx context.Context, query GetArchivedContractsQry) (*GetArchivedContractsResult, error) {
@@ -142,6 +148,7 @@ func (h *GetArchivedContractsHandler) Search(ctx context.Context, query SearchAr
 	}
 
 	searchValues := db.SearchValues{
+		ArchiveOnly:     true,
 		DID:             query.DID,
 		ContractVersion: query.ContractVersion,
 		State:           state,
@@ -149,6 +156,12 @@ func (h *GetArchivedContractsHandler) Search(ctx context.Context, query SearchAr
 		Description:     query.Description,
 		ContractData:    query.ContractData,
 		Tag:             query.Tag,
+		Party:           query.Party,
+		ContractType:    query.ContractType,
+		Jurisdiction:    query.Jurisdiction,
+		ParentDID:       query.ParentDID,
+		ValidFrom:       query.ValidFrom,
+		ValidTo:         query.ValidTo,
 	}
 
 	archivedContractsMetadata, err := h.CRepo.ReadArchivedContractsByFilter(ctx, tx, searchValues)

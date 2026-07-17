@@ -1589,7 +1589,7 @@ effective_requirement: |
 ### DCS-FR-CSA-03 - Proof-of-Existence
 id: DCS-FR-CSA-03
 area: Functional Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   The system MUST generate a verifiable proof-of-existence for each archived contract. This
@@ -1600,12 +1600,14 @@ effective_requirement: |
   proof MAY include a cryptographic hash, timestamp, and optional anchoring on a distributed
   ledger for independent verification.
 context_note: |
-  anchoring undetermined
+  Proof-of-existence is provided by the canonical SHA-256 snapshot hash, immutable IPFS content
+  identifier, hash-chained ORCE receipt, and RFC-3161 timestamp evidence. Distributed-ledger
+  anchoring remains optional and is not required for completion of this requirement.
 
 ### DCS-FR-CSA-04 - Contract Expiry & Renewal Tracking
 id: DCS-FR-CSA-04
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   The system MUST monitor contract expiration timelines and support tracking of renewal status.
@@ -1617,7 +1619,7 @@ effective_requirement: |
 ### DCS-FR-CSA-05 - Hierarchical Contract Storage
 id: DCS-FR-CSA-05
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Contracts MUST be stored in a structured hierarchy, supporting nesting of frame agreements,
@@ -1631,7 +1633,7 @@ effective_requirement: |
 ### DCS-FR-CSA-06 - Machine-Readable Contract Storage
 id: DCS-FR-CSA-06
 area: Functional Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Machine-readable versions of contracts (e.g., JSON-LD, XML) MUST be stored alongside
@@ -1647,7 +1649,7 @@ context_note: |
 ### DCS-FR-CSA-07 - Automated Compliance Checks
 id: DCS-FR-CSA-07
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Before contracts are archived, the system MUST perform automated compliance checks based on
@@ -1661,7 +1663,7 @@ effective_requirement: |
 ### DCS-FR-CSA-08 - Store Signed Contract in Archive
 id: DCS-FR-CSA-08
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Upon completion of the signature workflow, the system MUST automatically store the finalized
@@ -1687,7 +1689,7 @@ effective_requirement: |
 ### DCS-FR-CSA-10 - Index Contract Metadata
 id: DCS-FR-CSA-10
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Archived contracts MUST be indexed with metadata fields such as parties, contract type,
@@ -1701,7 +1703,7 @@ effective_requirement: |
 ### DCS-FR-CSA-11 - Create Contract Summary and Tags
 id: DCS-FR-CSA-11
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   The system MUST allow automatic or manual generation of a summary for each archived contract.
@@ -1713,7 +1715,7 @@ effective_requirement: |
 ### DCS-FR-CSA-12 - Retrieve Contract from Archive
 id: DCS-FR-CSA-12
 area: Functional Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Authorized users MUST be able to retrieve contracts using metadata filters, contract ID, or
@@ -1737,7 +1739,7 @@ effective_requirement: |
 ### DCS-FR-CSA-14 - Contract Expiration Handling
 id: DCS-FR-CSA-14
 area: Functional Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   Expired contracts MUST be flagged in the system and removed from active workflows. The system
@@ -1751,7 +1753,7 @@ effective_requirement: |
 ### DCS-FR-CSA-15 - Contract Renewal and Extension
 id: DCS-FR-CSA-15
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   The system MUST support creation of renewal or extension contracts linked to archived
@@ -1803,7 +1805,7 @@ effective_requirement: |
 ### DCS-FR-CSA-19 - Compliance Verification for Archived Contracts
 id: DCS-FR-CSA-19
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   The system MUST provide tools to verify whether archived contracts meet predefined compliance
@@ -1817,7 +1819,7 @@ effective_requirement: |
 ### DCS-FR-CSA-20 - Automated Contract Monitoring and Alerts
 id: DCS-FR-CSA-20
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   The archive MUST include rules-based monitoring for contract status and metadata (e.g.,
@@ -1827,11 +1829,15 @@ effective_requirement: |
   The archive MUST include rules-based monitoring for contract status and metadata (e.g.,
   expired, renewal due). Alert notifications MUST be configurable and delivered via UI, email,
   or API.
+implementation_decision: |
+  Alerts are persisted and delivered through the archive UI and the webhook/API outbox channel.
+  Users can enable or disable UI alerts and configure their notice window; email is not a
+  required channel because the effective requirement permits UI, email, or API delivery.
 
 ### DCS-FR-CSA-21 - Contract Archive Dashboard
 id: DCS-FR-CSA-21
 area: Functional Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   A dashboard MUST provide an overview of archived contract statistics, recent actions, storage
@@ -1845,7 +1851,7 @@ effective_requirement: |
 ### DCS-FR-CSA-22 - Contract Search Interface
 id: DCS-FR-CSA-22
 area: Functional Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   The system MUST include a dedicated search interface for archived contracts. It MUST support
@@ -1857,7 +1863,7 @@ effective_requirement: |
 ### DCS-FR-CSA-23 - Contract Expiration and Renewal Management UI
 id: DCS-FR-CSA-23
 area: Functional Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   The system MUST provide a visual interface for monitoring and managing contract expirations
@@ -1869,7 +1875,7 @@ effective_requirement: |
 ### DCS-FR-CSA-24 - Contract Compliance and Audit Viewer
 id: DCS-FR-CSA-24
 area: Functional Requirements
-implementation_status: Ongoing
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   A viewer MUST allow auditors to inspect contracts, associated metadata, compliance status, and
@@ -1895,7 +1901,7 @@ effective_requirement: |
 ### DCS-FR-CSA-26 - Archive Multi-Party Contract Component Assignments
 id: DCS-FR-CSA-26
 area: Functional Requirements
-implementation_status: Not Started
+implementation_status: Done
 interpretation_status: Unchanged
 source_requirement: |
   For contracts involving multiple parties, each party's assigned sections MUST be individually

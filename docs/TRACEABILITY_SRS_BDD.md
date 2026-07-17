@@ -162,10 +162,10 @@ not a coverage hole.
 | DCS-FR-CSA-01 | Tamper-Proof Contract Storage | ✅ Covered | Hash-chained, TSA-anchored audit trail + tamper scenarios (03/format_review tampered-PDF) prove tamper-evidence. |
 | DCS-FR-CSA-02 | Role-Based Access Control | ✅ Covered | 07 role-outside-archive-scope denied; access audited (20 export audit-log scenario). |
 | DCS-FR-CSA-03 | Proof-of-Existence | ✅ Covered | TSA timestamp + IPFS anchoring per event (05 TSA receipt, 08 audit anchoring). |
-| DCS-FR-CSA-04 | Contract Expiry & Renewal Tracking | 🟡 Partial | Expiry detection + banner proven (19). Configurable-threshold alert notifications not modeled — deviation note. |
+| DCS-FR-CSA-04 | Contract Expiry & Renewal Tracking | 🟡 Partial | Expiry detection + banner proven (19); persisted threshold-based expiry/renewal alerts are implemented, but the new alert preferences have unit/API rather than BDD coverage. |
 | DCS-FR-CSA-05 | Hierarchical Contract Storage | ✅ Covered | 20 sibling-isolation + party-scoped-bundle scenarios: hierarchy preserved and scoped in archive/bundles. |
 | DCS-FR-CSA-06 | Machine-Readable Contract Storage | ✅ Covered | JSON-LD stored + exported alongside PDF (20 bundle members; 05 deploy-payload shape); sync validated pre-archive via verify. |
-| DCS-FR-CSA-07 | Automated Compliance Checks | 🟡 Partial | ODRL/structural gates block non-compliant contracts before they can reach SIGNED/archive (18 approve/sign gates, 20 export refusal); a distinct archive-time re-check is not separate from the workflow gate. |
+| DCS-FR-CSA-07 | Automated Compliance Checks | 🟡 Partial | ODRL/structural gates block non-compliant contracts before SIGNED/archive (18 approve/sign gates, 20 export refusal); independent archive integrity checks have focused Go coverage. |
 | DCS-FR-CSA-08 | Store Signed Contract in Archive | ✅ Covered | 05 archive-at-SIGNED: archive entry exactly on SIGNED with evidence. |
 | DCS-FR-CSA-09 | Generate and Assign Contract Identifier | ✅ Covered | Contract DIDs assigned at creation and used across workflows (03, 12, 17). |
 | DCS-FR-CSA-10 | Index Contract Metadata | ✅ Covered | 07 state-filtered archive search; archive metadata view (contracts_archive_metadata). |
@@ -177,11 +177,11 @@ not a coverage hole.
 | DCS-FR-CSA-16 | Contract Termination | ✅ Covered | 06 termination with reason recorded; terminated contracts remain retrievable read-only (07 search by state). |
 | DCS-FR-CSA-17 | Contract Deletion | ✅ Covered | Archive delete scenarios (07, tagged @DCS-FR-CSA-17) incl. audit logging. |
 | DCS-FR-CSA-18 | Audit Log for Contract Storage and Retrieval | ✅ Covered | 20 export RBAC + audit-entry scenarios (tagged @DCS-FR-CSA-18); archive audit endpoint covered (07). |
-| DCS-FR-CSA-19 | Compliance Verification for Archived Contracts | 🟡 Partial | Audit entries retrievable per component (07/08); automated compliance flagging of archived entries beyond workflow gates not modeled. |
-| DCS-FR-CSA-20 | Automated Contract Monitoring and Alerts | 🟡 Partial | pac/monitor continuous monitoring (08); configurable UI/email alert delivery not modeled — deviation note. |
-| DCS-FR-CSA-21 | Contract Archive Dashboard | 📋 Not BDD-verifiable | Dashboard UI; backing stats/search APIs covered (07). |
-| DCS-FR-CSA-22 | Contract Search Interface | 📋 Not BDD-verifiable | Search UI; backing API covered (07 archive search). |
-| DCS-FR-CSA-23 | Contract Expiration and Renewal Management UI | 📋 Not BDD-verifiable | Expiry/renewal UI; backing expiry + renewal APIs covered (19, 06). |
+| DCS-FR-CSA-19 | Compliance Verification for Archived Contracts | 🟡 Partial | Audit entries are retrievable per component (07/08); retention, signature-evidence, metadata, hash, IPFS, ORCE and TSA findings have focused Go coverage. |
+| DCS-FR-CSA-20 | Automated Contract Monitoring and Alerts | 🟡 Partial | Persisted alerts, personal UI preferences and webhook/outbox delivery are implemented; the new configuration path has unit/API rather than BDD coverage. |
+| DCS-FR-CSA-21 | Contract Archive Dashboard | 📋 Not BDD-verifiable | Dashboard UI and backing statistics/drill-down APIs are implemented; controls are asserted by the archive UI unit contract test. |
+| DCS-FR-CSA-22 | Contract Search Interface | 📋 Not BDD-verifiable | Advanced filters, saved queries and CSV/JSON export are implemented; controls are asserted by the archive UI unit contract test. |
+| DCS-FR-CSA-23 | Contract Expiration and Renewal Management UI | 📋 Not BDD-verifiable | Alert management and bulk renewal are implemented; controls are asserted by the archive UI unit contract test. |
 | DCS-FR-CSA-24 | Contract Compliance and Audit Viewer | ✅ Covered | Audit viewer UI; backing pac/report + archive audit APIs covered (08, 07). UI now asserted: e2e/dashboards.spec.ts (audit workstation renders scoped audits for the auditor). |
 | DCS-FR-CSA-25 | Contract Processing API | ✅ Covered | Archive store/retrieve/search/delete APIs with authz + audit (07 pack, 20 export audit-log). |
 | DCS-FR-CSA-26 | Archive Multi-Party Contract Component Assignments | ✅ Covered | 20 sibling isolation across instances + party-scoped bundle content (tagged @DCS-FR-CSA-26). |
@@ -400,7 +400,7 @@ not a coverage hole.
 |---|---|---|
 | QES execution | DCS-FR-SM-01 | Needs qualified TSP/QSCD; AES delivered |
 | PoA credential acquisition + chain-walk | DCS-FR-SM-03/04, UC-14 | PoA presented at login with status checking; issuer chain-walk is deferred roadmap work — 14 pack keeps tagged @skip placeholders |
-| Configurable expiry/alert notifications | DCS-FR-CSA-04/20 | Detection covered; delivery channels absent |
+| Configurable expiry/alert notifications | DCS-FR-CSA-04/20 | UI and webhook/API delivery implemented; dedicated BDD scenarios remain absent |
 | FIDO2/WebAuthn | DCS-IR-HI-02 | No WebAuthn endpoints |
 | TPM sealing / remote attestation | DCS-IR-HI-03, DCS-NFR-SEC-17 | Platform concern, not implemented |
 | "Replaced" C2PA lifecycle banner | (19 lifecycle-banner subset) | Explicit scope decision, tracked in 19 pack header |

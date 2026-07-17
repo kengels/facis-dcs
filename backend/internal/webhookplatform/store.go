@@ -15,6 +15,7 @@ var KnownEvents = []EventInfo{
 	{Name: "contract.rejected", Description: "A contract was rejected"},
 	{Name: "contract.negotiated", Description: "A contract entered negotiation"},
 	{Name: "contract.terminated", Description: "A contract was terminated"},
+	{Name: "archive.alert", Description: "An archive expiry, renewal, retention, evidence or compliance alert was raised"},
 	{Name: "template.created", Description: "A new contract template was created"},
 	{Name: "template.approved", Description: "A contract template was approved"},
 	// DCS-FR-TR-22: Template Users subscribe to these to learn that a
@@ -32,6 +33,7 @@ var DCSEventMap = map[string]string{
 	"REJECT_CONTRACT":            "contract.rejected",
 	"NEGOTIATE_CONTRACT":         "contract.negotiated",
 	"TERMINATE_CONTRACT":         "contract.terminated",
+	"ARCHIVE_ALERT_RAISED":       "archive.alert",
 	"CREATE_CONTRACT_TEMPLATE":   "template.created",
 	"APPROVE_CONTRACT_TEMPLATE":  "template.approved",
 	"UPDATE_CONTRACT_TEMPLATE":   "template.updated",

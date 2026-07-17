@@ -5,6 +5,8 @@
 package conf
 
 import (
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -38,6 +40,22 @@ func GlobalAuditTrailName() string {
 
 func ArchiveDashboardRecentActionsLimit() int {
 	return 50
+}
+
+// ArchiveDefaultNoticeDays is used only when a contract does not provide its
+// own exp_notice_period. Invalid configuration falls back to the documented
+// development default instead of disabling expiration monitoring.
+func ArchiveDefaultNoticeDays() int {
+	const fallback = 30
+	value := os.Getenv("DCS_ARCHIVE_DEFAULT_NOTICE_DAYS")
+	if value == "" {
+		return fallback
+	}
+	days, err := strconv.Atoi(value)
+	if err != nil || days < 0 || days > 3650 {
+		return fallback
+	}
+	return days
 }
 
 func LoginAttemptsThresholdInDuration() int {

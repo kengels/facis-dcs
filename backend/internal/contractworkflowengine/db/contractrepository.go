@@ -219,12 +219,18 @@ type ContractArchiveEntry struct {
 	TSAReceipt           *datatype.JSON `db:"tsa_receipt"`
 	Evidence             *datatype.JSON `db:"evidence"`
 	RetentionUntil       *time.Time     `db:"retention_until"`
+	ParentContractDID    *string        `db:"parent_contract_did"`
+	Parties              *datatype.JSON `db:"parties"`
+	ContractType         *string        `db:"contract_type"`
+	Jurisdiction         *string        `db:"jurisdiction"`
+	ComplianceStatus     string         `db:"compliance_status"`
 	DeletedAt            *time.Time     `db:"deleted_at"`
 	DeletedBy            *string        `db:"deleted_by"`
 	DeletionReason       *string        `db:"deletion_reason"`
 }
 
 type SearchValues struct {
+	ArchiveOnly     bool
 	DID             string
 	ContractVersion int
 	State           string
@@ -239,7 +245,12 @@ type SearchValues struct {
 	// set, only contracts whose dcs:parentContract references this DID are
 	// returned. It is a reverse-index QUERY over children the instance
 	// legitimately holds locally — never a field on the parent document.
-	ParentDID string
+	ParentDID    string
+	Party        string
+	ContractType string
+	Jurisdiction string
+	ValidFrom    *time.Time
+	ValidTo      *time.Time
 }
 
 type ContractPDFState struct {

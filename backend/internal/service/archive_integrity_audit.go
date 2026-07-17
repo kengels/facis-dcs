@@ -219,11 +219,14 @@ func selectArchiveNotaryEvent(archiveEntryID string, receipt *archiveNotaryRecei
 
 var archiveIntegrityRules = []string{
 	"ARCHIVE_DB_SNAPSHOT",
+	"ARCHIVE_METADATA_COMPLETENESS",
+	"ARCHIVE_SIGNATURE_EVIDENCE",
 	"ARCHIVE_CONTENT_HASH",
 	"ARCHIVE_IPFS_SNAPSHOT",
 	"ARCHIVE_ORCE_RECEIPT",
 	"ARCHIVE_ORCE_CHAIN",
 	"ARCHIVE_TSA_RFC3161",
+	"ARCHIVE_RETENTION_POLICY",
 }
 
 // archiveIntegrityTrailEntries turns validation into independent, stable
@@ -267,6 +270,12 @@ func (s *processAuditAndCompliancesrvc) evaluateArchiveIntegrityChecks(ctx conte
 	} else if _, err := cwecommand.CanonicalizeArchiveSnapshot(entry.ContractSnapshot); err != nil {
 		checks["ARCHIVE_DB_SNAPSHOT"] = fmt.Errorf("contract_snapshot is invalid: %w", err)
 	}
+	if err := verifyArchiveMetadata(entry); err != nil {
+		checks["ARCHIVE_METADATA_COMPLETENESS"] = err
+	}
+	if err := verifyArchiveSignatureEvidence(entry); err != nil {
+		checks["ARCHIVE_SIGNATURE_EVIDENCE"] = err
+	}
 	if !archiveContentHashPattern.MatchString(entry.ContentHash) {
 		checks["ARCHIVE_CONTENT_HASH"] = errors.New("content_hash has invalid SHA-256 format")
 	} else if checks["ARCHIVE_DB_SNAPSHOT"] != nil {
@@ -302,7 +311,72 @@ func (s *processAuditAndCompliancesrvc) evaluateArchiveIntegrityChecks(ctx conte
 	if err := verifyArchiveTSAEvidence(entry, receipt, eventTSAReceipt, candidates); err != nil {
 		checks["ARCHIVE_TSA_RFC3161"] = err
 	}
+	if entry.DeletedAt != nil && entry.RetentionUntil != nil && entry.DeletedAt.Before(*entry.RetentionUntil) {
+		checks["ARCHIVE_RETENTION_POLICY"] = fmt.Errorf("archive entry was deleted at %s before retention deadline %s", entry.DeletedAt.UTC().Format(time.RFC3339), entry.RetentionUntil.UTC().Format(time.RFC3339))
+	}
 	return checks
+}
+
+func verifyArchiveMetadata(entry db.ContractArchiveEntry) error {
+	missing := make([]string, 0, 8)
+	if strings.TrimSpace(entry.DID) == "" {
+		missing = append(missing, "did")
+	}
+	if entry.ContractVersion < 1 {
+		missing = append(missing, "contract_version")
+	}
+	if strings.TrimSpace(entry.StoredBy) == "" {
+		missing = append(missing, "stored_by")
+	}
+	if entry.StoredAt.IsZero() {
+		missing = append(missing, "stored_at")
+	}
+	if strings.TrimSpace(entry.ArchiveStatus) == "" {
+		missing = append(missing, "archive_status")
+	}
+	if strings.TrimSpace(entry.ComplianceStatus) == "" {
+		missing = append(missing, "compliance_status")
+	}
+	if entry.Parties == nil || !entry.Parties.IsNotNullValue() || !json.Valid(*entry.Parties) {
+		missing = append(missing, "parties")
+	}
+	if entry.ContractType == nil || strings.TrimSpace(*entry.ContractType) == "" {
+		missing = append(missing, "contract_type")
+	}
+	if entry.Jurisdiction == nil || strings.TrimSpace(*entry.Jurisdiction) == "" {
+		missing = append(missing, "jurisdiction")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("archive metadata is incomplete: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func verifyArchiveSignatureEvidence(entry db.ContractArchiveEntry) error {
+	if entry.SignatureMeta == nil || !entry.SignatureMeta.IsNotNullValue() {
+		return errors.New("archive signature_metadata is missing")
+	}
+	var signature map[string]any
+	if err := json.Unmarshal(*entry.SignatureMeta, &signature); err != nil {
+		return fmt.Errorf("archive signature_metadata is invalid: %w", err)
+	}
+	for _, field := range []string{"signer", "ceremony_id", "field", "signed_at", "pdf_cid", "pdf_hash"} {
+		value, ok := signature[field].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return fmt.Errorf("archive signature_metadata has no %s", field)
+		}
+	}
+	if signature["status"] != "SIGNED" {
+		return errors.New("archive signature_metadata status is not SIGNED")
+	}
+	pdfHash, _ := signature["pdf_hash"].(string)
+	if !archiveContentHashPattern.MatchString(pdfHash) {
+		return errors.New("archive signature_metadata pdf_hash has invalid SHA-256 format")
+	}
+	if entry.CredentialHashes == nil || !entry.CredentialHashes.IsNotNullValue() || !json.Valid(*entry.CredentialHashes) {
+		return errors.New("archive credential_hashes evidence is missing or invalid")
+	}
+	return nil
 }
 
 func verifyArchiveTSAEvidence(entry db.ContractArchiveEntry, receipt *archiveNotaryReceiptData, eventReceipt *archiveTSAReceiptData, candidates []archiveNotaryEvent) error {
@@ -353,6 +427,12 @@ func archiveIntegrityRuleForError(err error) string {
 	}
 	message := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(message, "retention"):
+		return "ARCHIVE_RETENTION_POLICY"
+	case strings.Contains(message, "signature_metadata") || strings.Contains(message, "credential_hashes"):
+		return "ARCHIVE_SIGNATURE_EVIDENCE"
+	case strings.Contains(message, "metadata") || strings.Contains(message, "jurisdiction") || strings.Contains(message, "contract_type"):
+		return "ARCHIVE_METADATA_COMPLETENESS"
 	case strings.Contains(message, "tsa") || strings.Contains(message, "timestamp"):
 		return "ARCHIVE_TSA_RFC3161"
 	case strings.Contains(message, "receipt") || strings.Contains(message, "store event"):

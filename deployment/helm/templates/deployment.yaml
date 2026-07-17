@@ -120,6 +120,8 @@ spec:
               {{- else }}
               value: {{ include "digital-contracting-service.natsURL" . | quote }}
               {{- end }}
+            - name: DCS_ARCHIVE_DEFAULT_NOTICE_DAYS
+              value: {{ .Values.archive.defaultNoticeDays | quote }}
             - name: FEDERATED_CATALOGUE_API_URL
               {{- if and .Values.federatedCatalogue.secretRef .Values.federatedCatalogue.secretRef.name }}
               valueFrom:
