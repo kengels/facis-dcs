@@ -89,6 +89,8 @@ exercises directly.
 
 - The template views expose hierarchy, dependency findings, review decisions, registration,
   deprecation, deletion, search, and immutable audit history according to the active role.
+  See [Registering, publishing, and reusing template components](user-manual/template-components.md)
+  for the component-specific workflow.
 - A contract detail view exposes version comparison, review/approval decisions, hierarchy,
   evidence, lifecycle history, and target-reported KPIs. Contract Managers can create one
   renewal linked to the original contract; bulk renewal and notification management are not

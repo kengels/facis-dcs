@@ -16,6 +16,26 @@ timestamps for template, contract, and signature audits plus retrieved negotiati
 13 steps). Pack `24_ui_traceability` additionally proves that template lifecycle evidence renders
 without `Invalid Date` in the browser (1 Playwright scenario, 4 steps). See ADR-8.
 
+**2026-07-16 component-template lifecycle evidence.** Pack `02_template_management` proves that a
+Template Manager registers an approved component and publishes a registered component. Catalogue
+list, detail, and search preserve `template_type=COMPONENT`; the AC3 catalogue roundtrip evidence
+comprises 2 scenarios and 16 steps. Three selected Playwright scenarios in pack
+`24_ui_traceability` prove the manager lifecycle actions and that registered and published
+components appear in the contract-template picker with name and DID. All AC1–AC4 scenarios passed.
+
+**2026-07-16 new-draft component selection evidence.** Six Playwright scenarios in pack
+`24_ui_traceability` pass with 76 steps. They prove selection and persistence of complete
+authoritative snapshots for REGISTERED and PUBLISHED components, atomic create failure when a
+selected component becomes unavailable, and rejection of missing, malformed, and cyclic direct
+references.
+
+**2026-07-16 composition-aware template-audit evidence.** Pack `08_audit_compliance` proves all
+AC1–AC8 in `composition_aware_template_audit.feature`: policy audits combine the root with
+immediate persisted component snapshots for data, clause bindings, policies, domain fields,
+constraints, and required fields. The scenarios also prove root-only structure, metadata, and
+lifecycle checks, non-recursive snapshot evaluation, no repository re-resolution or snapshot
+mutation, component-prefixed technical finding paths, and unchanged standalone-component rules.
+
 **Method.** Every requirement gets exactly one disposition. Scenario references name the
 feature pack (by its `features/` directory number) plus a short scenario descriptor; most
 scenarios also carry the requirement ID as a behave tag (`@DCS-…`), so `grep -r <ID> features/`
@@ -30,9 +50,9 @@ JUnit evidence.
 
 | Status | Meaning | Count |
 |---|---|---|
-| ✅ Covered | scenario(s) assert the requirement end-to-end | 176 |
+| ✅ Covered | scenario(s) assert the requirement end-to-end | 175 |
 | 🔧 In progress | being implemented | 0 |
-| 🟡 Partial | core behavior asserted; named residue not (yet) provable | 27 |
+| 🟡 Partial | core behavior asserted; named residue not (yet) provable | 28 |
 | 📋 Not BDD-verifiable | infrastructure/process requirement verified outside the product test harness | 19 |
 | ❌ Deviation | capability not implemented in the product; recorded deviation | 3 |
 | | **Total** | **225** |
@@ -41,14 +61,14 @@ JUnit evidence.
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-FR-TR-01 | Machine-Readable Format | ✅ Covered | Templates stored/retrieved as JSON-LD — 02/create_template, 02/template_identity; editor state is the JSON-LD doc. |
+| DCS-FR-TR-01 | Machine-Readable Format | ✅ Covered | Templates stored/retrieved as JSON-LD — 02/create_template, 02/template_identity; the editor persists a selected component's complete authoritative snapshot in the new draft's JSON-LD document (24/template-repository UI). |
 | DCS-FR-TR-02 | Multi-Tiered Contract Template Management | ✅ Covered | 20/hierarchy invariant scenarios (tagged @DCS-FR-TR-02): parent refs, child-enumeration rejection, cycle rejection. |
 | DCS-FR-TR-03 | Semantic Hub for Schema Storage | ✅ Covered | Semantic Hub built (23/semantic_hub): versioned JSON-LD context + SHACL shape storage seeded with the FACIS v1 profile, public resolution, Template-Manager register/rollback (UC-02-08), every produced document anchored via resolvable dcs:schemaRefs, and hub-prefix redefinition rejected at template creation. |
 | DCS-FR-TR-04 | Machine-Readable and Human-Readable Template Linking | 🟡 Partial | MR→HR derivation proven via template PDF export + verify (02/template_integrity_audit); bidirectional *link* metadata not modeled beyond same-DID pairing. |
 | DCS-FR-TR-05 | Template Version Control | ✅ Covered | Template versions/approvals tracked; template audit-log scenario (02, @DCS-FR-TR-21/TR-05). retrieve_history_by_id exists. |
 | DCS-FR-TR-06 | Role-Based Access Control for Template Repository | ✅ Covered | RBAC negative scenarios: 02/create, 02/update, 02/archive, 02/workflow 'Unauthorized role cannot …' + 01 pack 401 sweep. |
-| DCS-FR-TR-07 | Compliance & Legal Validation | 🟡 Partial | Approval gate before usability proven (02/template_workflow + contract create requires REGISTERED). Domain-specific regulatory rule packs beyond ODRL/structural validation are not modeled. |
-| DCS-FR-TR-08 | ) | ✅ Covered | SRS formatting artifact whose substance is exercised through the real management UI in 24/template-management, in addition to 02/template_workflow and template_identity. |
+| DCS-FR-TR-07 | Compliance & Legal Validation | 🟡 Partial | Approval gate before usability proven (02/template_workflow + contract create requires REGISTERED); 08/composition-aware-template-audit proves root-plus-immediate-snapshot evaluation without hiding malformed root or component content. Domain-specific regulatory rule packs beyond ODRL/structural validation are not modeled. |
+| DCS-FR-TR-08 | ) | ✅ Covered | SRS formatting artifact whose substance is exercised through the real management UI in 24/template-management, including the verified `APPROVED → REGISTERED → PUBLISHED` component lifecycle, in addition to 02/template_workflow and template_identity. |
 | DCS-FR-TR-09 | Template Provenance and Versioning | ✅ Covered | Registration seals each version's provenance as a signed W3C VC (JSON-LD, ecdsa-rdfc-2019): creator/reviewer/approver/registrar claims, content hash, previous-credential linkage; served by GET /template/provenance/{did} (02/template_provenance). Provenance also travels in template bundle export (20). |
 | DCS-FR-TR-10 | Searchable Metadata & Categorization | ✅ Covered | 02/search_templates: by name, description, details; RBAC negative. |
 | DCS-FR-TR-11 | Template UUID / DID Assignment | ✅ Covered | 02/template_identity: UUID on creation, retrieve by DID. |
@@ -60,15 +80,15 @@ JUnit evidence.
 | DCS-FR-TR-17 | Template Retirement and Deprecation | ✅ Covered | 02/template_archive 'Deprecate an active template' + cannot-delete-deprecated guard. |
 | DCS-FR-TR-18 | Template Deletion | ✅ Covered | 02/template_archive delete scenarios incl. RBAC negative. |
 | DCS-FR-TR-19 | Template Retrieval | ✅ Covered | 02/generate_contract + template_identity retrieve-by-DID (/template/retrieve). |
-| DCS-FR-TR-20 | Template Compliance and Integrity Verification | ✅ Covered | /template/verify scenario (02, tagged @DCS-FR-TR-20). |
+| DCS-FR-TR-20 | Template Compliance and Integrity Verification | ✅ Covered | /template/verify scenario (02); 08/composition-aware-template-audit proves reproducible policy evaluation of persisted immediate snapshots, prefixed finding paths, and unchanged standalone-component rules. |
 | DCS-FR-TR-21 | Audit Logs for Template Changes | ✅ Covered | Template audit-log scenario (02, tagged @DCS-FR-TR-21); 08/browser-safe-api-timestamps and 24/browser-safe-template-timestamps prove RFC3339 wire timestamps and valid browser rendering. |
 | DCS-FR-TR-22 | Notification System for Template Updates | ✅ Covered | Webhook platform (/orce): subscribable template.updated/template.registered events fan out to registered receivers with the template DID in the payload; delivery log with acknowledgement (GET /deliveries). Verified end-to-end against the ORCE monitoring flow (02/template_update_notifications). |
-| DCS-FR-TR-23 | Structural Dependency Mapping The Template Repository MUST allow Te… | ✅ Covered | 20 hierarchy dependency enforcement + export refusal on missing component (tagged @DCS-FR-TR-26/@DCS-FR-PACM-06). |
+| DCS-FR-TR-23 | Structural Dependency Mapping The Template Repository MUST allow Te… | ✅ Covered | 20 hierarchy dependency enforcement + export refusal on missing component; 24/template-repository UI selects REGISTERED/PUBLISHED components into a new draft and persists their authoritative snapshots; 08/composition-aware-template-audit proves those immediate snapshots form a read-only, non-recursive audit view. |
 | DCS-FR-TR-24 | Structural Export in Unified Format | ✅ Covered | 20 template bundle export (tagged @DCS-FR-TR-24). |
-| DCS-FR-TR-25 | Multi-Contract Template Builder | ✅ Covered | 24/template-hierarchy renders the authoritative nested hierarchy in the builder; backing invariants remain covered by 20 hierarchy/bundle. |
-| DCS-FR-TR-26 | Logical Validation of Structural Dependencies | ✅ Covered | 20 'Export is refused with a findings list when a referenced component is missing' (tagged). |
+| DCS-FR-TR-25 | Multi-Contract Template Builder | ✅ Covered | 24/template-repository UI offers REGISTERED/PUBLISHED components by name and DID before the parent draft exists, loads the complete snapshot, and renders the persisted hierarchy; backing invariants remain covered by 20 hierarchy/bundle. |
+| DCS-FR-TR-26 | Logical Validation of Structural Dependencies | ✅ Covered | 24/template-repository UI proves atomic create-time revalidation when a selected component becomes unavailable plus rejection of missing, malformed, and cyclic direct references; 20 still covers export refusal for missing dependencies. |
 | DCS-FR-TR-27 | Contract Type Classification | 🟡 Partial | Multi/single-party structure expressed via responsible-party DIDs and hierarchy; a dedicated contract-type classification facet for filtering is not modeled. |
-| DCS-FR-TR-28 | Template Management Dashboard (see Section 3.1) | ✅ Covered | 24/template-management proves search, lifecycle actions, and audit in the browser. |
+| DCS-FR-TR-28 | Template Management Dashboard (see Section 3.1) | ✅ Covered | 24/template-management proves search, lifecycle actions, and audit in the browser, including register and publish actions for component templates. |
 
 ## 3.2.2 Contract Workflow Engine (DCS-FR-CWE-…)
 
@@ -200,7 +220,7 @@ JUnit evidence.
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-SI-01 | Template Catalogue Integration | ✅ Covered | Template catalogue endpoints scenarios (02/template_catalogue, tagged @DCS-IR-SI-01). |
+| DCS-IR-SI-01 | Template Catalogue Integration | ✅ Covered | 02/template_catalogue proves publish, list, detail, and search through the adapter; component type is preserved as `COMPONENT` across the catalogue roundtrip. |
 | DCS-IR-SI-02 | Workflow Orchestration (Node-RED) Integration | ✅ Covered | 05 shipped ORCE contract-target flow round-trip (tagged @DCS-IR-SI-02). |
 | DCS-IR-SI-03 | Platform Authentication & Authorization Integration | ✅ Covered | 01 pack — all components enforce OAuth2/OIDC. |
 | DCS-IR-SI-04 | Wallet & TSP Signing Integration | 🟡 Partial | OID4VP + remote-signing seam proven via headless ceremony + HSM signing (22); real TSP integration out of hermetic scope. |
@@ -217,21 +237,21 @@ JUnit evidence.
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-TR-01 | Template Builder MUST allow Template Creator to create new contract… | ✅ Covered | 24/template-create: create, edit, and submit through the browser. |
+| DCS-IR-TR-01 | Template Builder MUST allow Template Creator to create new contract… | ✅ Covered | 24/template-create covers create/edit/submit; 24/template-repository UI proves pre-persistence component selection, complete authoritative snapshot persistence, hierarchy rendering after reopen, and visible atomic-validation errors. |
 | DCS-IR-TR-02 | Template Builder MUST allow searching and retrieving existing templ… | ✅ Covered | 24/template-create: search and retrieve through the browser. |
 | DCS-IR-TR-03 | Template Review MUST allow Reviewers to retrieve, verify, update, a… | ✅ Covered | 24/template-review: reviewer retrieves, verifies, updates, and submits. |
 | DCS-IR-TR-04 | Template Review MUST support forwarding a verified template to appr… | ✅ Covered | 24/template-review: verified decision and return path with comments. |
 | DCS-IR-TR-05 | Template Approval MUST allow Approvers to retrieve, approve, reject… | ✅ Covered | 24/template-approval: reasoned rejection, resubmission, and approval. |
 | DCS-IR-TR-06 | Template Approval MUST ensure that only validated templates enter t… | ✅ Covered | 24/template-approval plus backend registration gate prove only validated assets progress. |
-| DCS-IR-TR-07 | Template Management Dashboard MUST allow Managers to register, arch… | ✅ Covered | 24/template-management: register, update, search, audit, and deprecate. |
-| DCS-IR-TR-08 | Template Management Dashboard MUST provide lifecycle oversight of a… | ✅ Covered | 24/template-management provides browser lifecycle oversight; 24/browser-safe-template-timestamps proves lifecycle dates render without `Invalid Date`. |
+| DCS-IR-TR-07 | Template Management Dashboard MUST allow Managers to register, arch… | ✅ Covered | 24/template-management: register, publish, update, search, audit, and deprecate; component templates use the same register/publish actions. |
+| DCS-IR-TR-08 | Template Management Dashboard MUST provide lifecycle oversight of a… | ✅ Covered | 24/template-management provides browser lifecycle oversight for contract and component templates; 24/browser-safe-template-timestamps proves lifecycle dates render without `Invalid Date`. |
 
 ## 3.1.1 UI — Contract Workflow (DCS-IR-CWE-…)
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-CWE-01 | Contract Creation UI MUST allow Contract Creators to create and sub… | ✅ Covered | 24/contract-create creates from an approved template and submits in the browser. |
-| DCS-IR-CWE-02 | Contract Creation UI MUST enable population of contract data, inclu… | ✅ Covered | 24/contract-create persists parties, assets, policies, and typed evidence from the UI. |
+| DCS-IR-CWE-01 | Contract Creation UI MUST allow Contract Creators to create and sub… | ✅ Covered | 24/contract-create creates from an approved template and submits in the browser. The focused regression run passed 1 Playwright scenario with 23 steps. |
+| DCS-IR-CWE-02 | Contract Creation UI MUST enable population of contract data, inclu… | 🟡 Partial | Create-from-template and submit remain browser-proven under DCS-IR-CWE-01. Model-based population of parties, assets, policies, and evidence is not specified or implemented and remains an explicit `ui-gap` pending an authoritative product model, cardinalities, validation rules, and acceptance criteria. |
 | DCS-IR-CWE-03 | Contract Negotiation UI MUST allow parties to exchange responses, r… | ✅ Covered | 24/contract-negotiation proves browser comments and redlines. |
 | DCS-IR-CWE-04 | Contract Negotiation UI MUST support comparison of contract version… | ✅ Covered | 24/contract-negotiation proves the browser-visible version diff. |
 | DCS-IR-CWE-05 | Contract Review UI MUST allow Reviewers to retrieve, inspect, and v… | ✅ Covered | 24/contract-governance exercises review retrieval and inspection. |
@@ -297,7 +317,7 @@ JUnit evidence.
 | DCS-NFR-BR-06 | Revocation & Termination Propagation | ✅ Covered | Signature revocation → REVOKED immediately (15); cross-instance propagation via the synchronizer's SignatureManagement broadcast (17 revocation-propagation scenario: revoke on A, REVOKED replicated on B through the JAdES-verified post_sync path). |
 | DCS-NFR-BR-07 | Token & API Control | 🟡 Partial | Role-scoped tokens enforced (01); explicit minimal-scope token issuance policy is IdP config — noted. |
 | DCS-NFR-BR-08 | DCS-to-DCS Interoperability Safeguards | ✅ Covered | 17 pack (tagged @NFR-BR-08): authenticated, trusted-peer-only exchanges with audit. |
-| DCS-NFR-BR-09 | Catalogue-Aligned Publishing | ✅ Covered | Catalogue publish/consume scenario (02/template_catalogue). |
+| DCS-NFR-BR-09 | Catalogue-Aligned Publishing | ✅ Covered | 02/template_catalogue proves component publish/consume and preserves `dcs:templateType=COMPONENT` in list, detail, and search. |
 
 ## 3.3.3 Security (DCS-NFR-SEC-…)
 
@@ -362,13 +382,13 @@ JUnit evidence.
 | UC | Title | Feature pack(s) |
 |---|---|---|
 | UC-01 | User Authentication & Authorization | 01_authentication_authorization |
-| UC-02 | Contract Template Management | 02_template_management (incl. catalogue) |
+| UC-02 | Contract Template Management | 02_template_management (component lifecycle/catalogue), 08_audit_compliance (composition-aware template policy audit), and 24_ui_traceability (new-draft component snapshot selection and atomic dependency validation) |
 | UC-03 | Contract Creation | 03_contract_creation (creation, negotiation, approval, format review, state machine) |
 | UC-04 | Contract Signing | 22_real_signing_vertical, 04_contract_signing, 21_pki_consolidation |
 | UC-05 | Contract Deployment | 05_contract_deployment |
 | UC-06 | Contract Lifecycle Management | 06_contract_lifecycle (termination + renewal), 19 (expiry) |
 | UC-07 | Contract Storage & Security | 07_contract_storage_security, 20 (bundles/audit) |
-| UC-08 | Contract Compliance & Auditing | 08_audit_compliance, 18_odrl_soundness |
+| UC-08 | Contract Compliance & Auditing | 08_audit_compliance (including composition-aware template policy audit), 18_odrl_soundness |
 | UC-09 | DCS Administration | RBAC config is IdP/Helm config (📋); role enforcement covered by 01 + negatives suite-wide |
 | UC-10 | Contract Automation & Integration | 05 (ORCE), 12 (API automation), 18 (integrity gates) |
 | UC-11 | API & System Integrations | 05, 12, 17; catalogue (02) |

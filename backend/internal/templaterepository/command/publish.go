@@ -13,8 +13,8 @@ import (
 	"digital-contracting-service/internal/base/datatype/componenttype"
 	"digital-contracting-service/internal/base/datatype/userrole"
 	"digital-contracting-service/internal/base/event"
-	"digital-contracting-service/internal/fcasset"
 	fcclient "digital-contracting-service/internal/templatecatalogueintegration/client"
+	"digital-contracting-service/internal/templaterepository/catalogueasset"
 	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
 	"digital-contracting-service/internal/templaterepository/db"
 	templateevents "digital-contracting-service/internal/templaterepository/event"
@@ -130,26 +130,7 @@ func (h *Publisher) publishTemplateResourceToFC(ctx context.Context, cmd Publish
 		return fmt.Errorf("holder did is empty")
 	}
 
-	name := ""
-	description := ""
-	if fullTemplate.Name != nil {
-		name = *fullTemplate.Name
-	}
-	if fullTemplate.Description != nil {
-		description = *fullTemplate.Description
-	}
-
-	payload, err := fcasset.BuildPayload(fcasset.BuildInput{
-		Issuer:    cmd.HolderDID,
-		ValidFrom: fullTemplate.UpdatedAt,
-		Subject: fcasset.CatalogueSubjectFromRepository(
-			cmd.DID,
-			processData.Version,
-			processData.State,
-			name,
-			description,
-		),
-	})
+	payload, err := catalogueasset.BuildTemplatePayload(cmd.DID, cmd.HolderDID, processData, fullTemplate)
 
 	if err != nil {
 		return fmt.Errorf("build template asset payload failed: %w", err)

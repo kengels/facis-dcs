@@ -10,6 +10,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ROUTES } from '@/router/router'
 import { contractTemplateService } from '@/services/contract-template-service'
 import { TemplateState } from '@/types/contract-template-state'
+import { extractErrorMessage } from '@/utils/error-message'
 
 const router = useRouter()
 const route = useRoute()
@@ -112,7 +113,7 @@ const submit = async () => {
     await router.push({ name: ROUTES.TEMPLATES.LIST, query: { saved_did: savedDid } })
   } catch (error) {
     console.error('Submission failed', error)
-    submitError.value = error instanceof Error ? error.message : String(error)
+    submitError.value = extractErrorMessage(error, 'Template save failed')
   } finally {
     isSubmitting.value = false
   }
@@ -150,7 +151,7 @@ const submit = async () => {
           </button>
         </div>
         <div v-if="submitError" class="mx-auto max-w-4xl px-6 pb-3">
-          <p class="text-sm text-error">Save failed: {{ submitError }}</p>
+          <p data-test-id="template-create-error" class="text-sm text-error">Save failed: {{ submitError }}</p>
         </div>
       </div>
     </template>

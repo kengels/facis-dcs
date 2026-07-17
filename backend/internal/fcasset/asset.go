@@ -14,15 +14,17 @@ const (
 	DCSContextURL        = "https://w3id.org/facis/dcs/1#"
 	SchemaContextURL     = "https://schema.org/"
 	ProvContextURL       = "http://www.w3.org/ns/prov#"
+	DIDWebPrefix         = "did:web:"
 )
 
 // CatalogueSubject is the credentialSubject published to FC.
 type CatalogueSubject struct {
-	ID          string
-	State       string
-	Name        string
-	Description string
-	Version     string
+	ID           string
+	State        string
+	TemplateType string
+	Name         string
+	Description  string
+	Version      string
 }
 
 // BuildInput carries catalogue metadata required for an FC /assets JSON-LD payload.
@@ -69,6 +71,7 @@ func BuildPayload(input BuildInput) (map[string]any, error) {
 			"type":               "dcs:ContractTemplate",
 			"dcs:templateUuid":   input.Subject.ID,
 			"dcs:state":          input.Subject.State,
+			"dcs:templateType":   input.Subject.TemplateType,
 			"schema:name":        input.Subject.Name,
 			"schema:description": input.Subject.Description,
 			"schema:version":     input.Subject.Version,
@@ -81,15 +84,17 @@ func CatalogueSubjectFromRepository(
 	did string,
 	version int,
 	state string,
+	templateType string,
 	name string,
 	description string,
 ) CatalogueSubject {
 	return CatalogueSubject{
-		ID:          did,
-		State:       strings.ToLower(strings.TrimSpace(state)),
-		Name:        name,
-		Description: description,
-		Version:     strconv.Itoa(version),
+		ID:           did,
+		State:        strings.ToLower(strings.TrimSpace(state)),
+		TemplateType: strings.TrimSpace(templateType),
+		Name:         name,
+		Description:  description,
+		Version:      strconv.Itoa(version),
 	}
 }
 
@@ -99,22 +104,26 @@ var ErrRemoteTemplateNotFound = errors.New("remote template not found")
 // ToDidDocumentURL maps a did:web identifier to its HTTPS DID document URL per W3C DID Core.
 // Example: did:web:localhost:template:uuid → https://localhost/template/uuid/did.json
 func ToDidDocumentURL(did string) (string, error) {
-	const prefix = "did:web:"
-
 	did = strings.TrimSpace(did)
 	if did == "" {
 		return "", fmt.Errorf("did is empty")
 	}
-	if !strings.HasPrefix(did, prefix) {
+	if !IsDIDWebIdentifier(did) {
 		return "", fmt.Errorf("only did:web is supported: %s", did)
 	}
 
-	path := strings.TrimPrefix(did, prefix)
+	path := strings.TrimPrefix(did, DIDWebPrefix)
 	if path == "" {
 		return "", fmt.Errorf("did path is empty")
 	}
 
 	return "https://" + strings.ReplaceAll(path, ":", "/") + "/did.json", nil
+}
+
+// IsDIDWebIdentifier reports whether an identifier belongs to the did:web method.
+// Structural validation remains the responsibility of ToDidDocumentURL.
+func IsDIDWebIdentifier(did string) bool {
+	return strings.HasPrefix(strings.TrimSpace(did), DIDWebPrefix)
 }
 
 // FetchDocument resolves template content from the DID document URL.

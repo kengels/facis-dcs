@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"digital-contracting-service/internal/base/datatype"
+	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
+	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatetype"
 	"digital-contracting-service/internal/templaterepository/db"
 
 	"github.com/google/uuid"
@@ -16,9 +19,10 @@ import (
 )
 
 var (
-	ErrInvalidDID       = errors.New("invalid template DID")
-	ErrTemplateNotFound = errors.New("dependency template not found")
-	ErrCycle            = errors.New("template dependency cycle")
+	ErrInvalidDID          = errors.New("invalid template DID")
+	ErrTemplateNotFound    = errors.New("dependency template not found")
+	ErrCycle               = errors.New("template dependency cycle")
+	ErrTemplateNotReusable = errors.New("dependency template is not reusable")
 )
 
 var didPattern = regexp.MustCompile(`^did:[a-z0-9]+:[A-Za-z0-9._:%-]+(?::[A-Za-z0-9._:%-]+)*$`)
@@ -38,6 +42,25 @@ func ValidateIdentifier(identifier string) error {
 // back to sourceDID. It performs no mutation and reads the whole dependency
 // graph from authoritative template snapshots.
 func ValidateReference(ctx context.Context, tx *sqlx.Tx, repo db.ContractTemplateRepo, sourceDID, referenceDID string) (*db.ContractTemplate, error) {
+	return validateReference(ctx, tx, repo.ReadDataByID, sourceDID, referenceDID)
+}
+
+// ValidateReusableReference validates a picker reference without taking row locks.
+// Mutation paths use ValidateTemplateData and its transaction-scoped share locks.
+func ValidateReusableReference(ctx context.Context, tx *sqlx.Tx, repo db.ContractTemplateRepo, sourceDID, referenceDID string) (*db.ContractTemplate, error) {
+	template, err := ValidateReference(ctx, tx, repo, sourceDID, referenceDID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateReusableDependency(template); err != nil {
+		return nil, err
+	}
+	return template, nil
+}
+
+type templateReader func(context.Context, *sqlx.Tx, string) (*db.ContractTemplate, error)
+
+func validateReference(ctx context.Context, tx *sqlx.Tx, readTemplate templateReader, sourceDID, referenceDID string) (*db.ContractTemplate, error) {
 	if err := ValidateIdentifier(referenceDID); err != nil {
 		return nil, err
 	}
@@ -56,7 +79,7 @@ func ValidateReference(ctx context.Context, tx *sqlx.Tx, repo db.ContractTemplat
 			return nil
 		}
 		visited[current] = true
-		template, err := repo.ReadDataByID(ctx, tx, current)
+		template, err := readTemplate(ctx, tx, current)
 		if err != nil {
 			if errors.Is(err, db.ErrContractTemplateNotFound) {
 				return fmt.Errorf("%w: %s", ErrTemplateNotFound, current)
@@ -83,10 +106,38 @@ func ValidateReference(ctx context.Context, tx *sqlx.Tx, repo db.ContractTemplat
 // dependency in the candidate document.
 func ValidateTemplateData(ctx context.Context, tx *sqlx.Tx, repo db.ContractTemplateRepo, sourceDID string, data *datatype.JSON) error {
 	for _, reference := range References(data) {
-		if _, err := ValidateReference(ctx, tx, repo, sourceDID, reference); err != nil {
+		template, err := validateReference(ctx, tx, repo.ReadDataByIDForShare, sourceDID, reference)
+		if err != nil {
+			return err
+		}
+		if err := validateReusableDependency(template); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+func validateReusableDependency(template *db.ContractTemplate) error {
+	if template == nil {
+		return ErrTemplateNotReusable
+	}
+
+	templateType, err := contracttemplatetype.NewContractTemplateType(template.TemplateType)
+	if err != nil || templateType != contracttemplatetype.Component {
+		return fmt.Errorf("%w: template %s must have type %s", ErrTemplateNotReusable, template.DID, contracttemplatetype.Component)
+	}
+
+	state, err := contracttemplatestate.NewContractTemplateState(template.State)
+	if err != nil || (state != contracttemplatestate.Registered && state != contracttemplatestate.Published) {
+		return fmt.Errorf(
+			"%w: component %s must be in state %s or %s",
+			ErrTemplateNotReusable,
+			template.DID,
+			contracttemplatestate.Registered,
+			contracttemplatestate.Published,
+		)
+	}
+
 	return nil
 }
 
@@ -123,7 +174,10 @@ func References(data *datatype.JSON) []string {
 					}
 				}
 			}
-			for _, child := range typed {
+			for key, child := range typed {
+				if key == "dcs:template" {
+					continue
+				}
 				walk(child)
 			}
 		case []any:
@@ -133,5 +187,6 @@ func References(data *datatype.JSON) []string {
 		}
 	}
 	walk(document)
+	sort.Strings(result)
 	return result
 }

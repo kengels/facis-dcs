@@ -57,6 +57,7 @@ RETURN {
   description: ct.description,
   version: ct.version,
   state: ct.state,
+  templateType: ct.templateType,
   template_uuid: ct.templateUuid
 } AS n
 SKIP %d

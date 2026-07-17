@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"digital-contracting-service/internal/base/datatype"
+	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatestate"
+	"digital-contracting-service/internal/templaterepository/datatype/contracttemplatetype"
 	"digital-contracting-service/internal/templaterepository/db"
 
 	"github.com/jmoiron/sqlx"
@@ -51,12 +53,157 @@ func TestValidateIdentifierClassifiesInvalidValues(t *testing.T) {
 	}
 }
 
+func TestValidateTemplateDataAcceptsOnlyReusableDirectComponents(t *testing.T) {
+	const (
+		source = "11111111-1111-4111-8111-111111111111"
+		child  = "22222222-2222-4222-8222-222222222222"
+	)
+	data := datatype.JSON(fmt.Sprintf(`{"dcs:metadata":{"dcs:subTemplates":[{"@id":%q}]}}`, child))
+
+	for _, state := range []contracttemplatestate.ContractTemplateState{
+		contracttemplatestate.Registered,
+		contracttemplatestate.Published,
+	} {
+		repo := &dependencyRepoFake{templates: map[string]*db.ContractTemplate{
+			child: {
+				DID:          child,
+				TemplateType: contracttemplatetype.Component.String(),
+				State:        state.String(),
+			},
+		}}
+		if err := ValidateTemplateData(context.Background(), nil, repo, source, &data); err != nil {
+			t.Fatalf("reusable component in state %s rejected: %v", state, err)
+		}
+	}
+
+	for name, template := range map[string]*db.ContractTemplate{
+		"contract template": {
+			DID:          child,
+			TemplateType: contracttemplatetype.ContractTemplate.String(),
+			State:        contracttemplatestate.Registered.String(),
+		},
+		"approved component": {
+			DID:          child,
+			TemplateType: contracttemplatetype.Component.String(),
+			State:        contracttemplatestate.Approved.String(),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := &dependencyRepoFake{templates: map[string]*db.ContractTemplate{child: template}}
+			err := ValidateTemplateData(context.Background(), nil, repo, source, &data)
+			if !errors.Is(err, ErrTemplateNotReusable) {
+				t.Fatalf("error = %v, want ErrTemplateNotReusable", err)
+			}
+		})
+	}
+}
+
+func TestValidateTemplateDataIgnoresEmbeddedSnapshotReferencesForAvailability(t *testing.T) {
+	const (
+		source = "11111111-1111-4111-8111-111111111111"
+		root   = "22222222-2222-4222-8222-222222222222"
+		child  = "33333333-3333-4333-8333-333333333333"
+	)
+	candidate := datatype.JSON(fmt.Sprintf(
+		`{"dcs:metadata":{"dcs:subTemplates":[{"@id":%q,"dcs:template":{"dcs:metadata":{"dcs:subTemplates":[{"@id":%q}]}}}]}}`,
+		root,
+		child,
+	))
+	repo := &dependencyRepoFake{templates: map[string]*db.ContractTemplate{
+		root: {
+			DID:          root,
+			TemplateType: contracttemplatetype.Component.String(),
+			State:        contracttemplatestate.Registered.String(),
+		},
+		child: {
+			DID:          child,
+			TemplateType: contracttemplatetype.Component.String(),
+			State:        contracttemplatestate.Deprecated.String(),
+		},
+	}}
+
+	if err := ValidateTemplateData(context.Background(), nil, repo, source, &candidate); err != nil {
+		t.Fatalf("embedded historical child blocked reusable direct root: %v", err)
+	}
+	if repo.reads[child] != 0 {
+		t.Fatalf("embedded immutable child was read %d times, want 0", repo.reads[child])
+	}
+}
+
+func TestValidateTemplateDataUsesShareLockedReads(t *testing.T) {
+	const (
+		source = "11111111-1111-4111-8111-111111111111"
+		child  = "22222222-2222-4222-8222-222222222222"
+	)
+	data := datatype.JSON(fmt.Sprintf(`{"dcs:metadata":{"dcs:subTemplates":[{"@id":%q}]}}`, child))
+	repo := &dependencyRepoFake{templates: map[string]*db.ContractTemplate{
+		child: {
+			DID:          child,
+			TemplateType: contracttemplatetype.Component.String(),
+			State:        contracttemplatestate.Published.String(),
+		},
+	}}
+
+	if err := ValidateTemplateData(context.Background(), nil, repo, source, &data); err != nil {
+		t.Fatalf("ValidateTemplateData() error = %v", err)
+	}
+	if repo.shareReads[child] == 0 {
+		t.Fatal("dependency row was not read through ReadDataByIDForShare")
+	}
+	if repo.reads[child] != 0 {
+		t.Fatalf("dependency row used unlocked reader %d times", repo.reads[child])
+	}
+}
+
+func TestValidateReusableReferenceChecksAvailabilityWithoutMutationLock(t *testing.T) {
+	const (
+		source = "11111111-1111-4111-8111-111111111111"
+		child  = "22222222-2222-4222-8222-222222222222"
+	)
+	repo := &dependencyRepoFake{templates: map[string]*db.ContractTemplate{
+		child: {
+			DID:          child,
+			TemplateType: contracttemplatetype.Component.String(),
+			State:        contracttemplatestate.Approved.String(),
+		},
+	}}
+
+	_, err := ValidateReusableReference(context.Background(), nil, repo, source, child)
+	if !errors.Is(err, ErrTemplateNotReusable) {
+		t.Fatalf("error = %v, want ErrTemplateNotReusable", err)
+	}
+	if repo.reads[child] == 0 {
+		t.Fatal("query validation did not use the unlocked reader")
+	}
+	if repo.shareReads[child] != 0 {
+		t.Fatalf("query validation acquired mutation lock %d times", repo.shareReads[child])
+	}
+}
+
 type dependencyRepoFake struct {
 	db.ContractTemplateRepo
-	templates map[string]*db.ContractTemplate
+	templates  map[string]*db.ContractTemplate
+	reads      map[string]int
+	shareReads map[string]int
 }
 
 func (r *dependencyRepoFake) ReadDataByID(_ context.Context, _ *sqlx.Tx, did string) (*db.ContractTemplate, error) {
+	if r.reads == nil {
+		r.reads = make(map[string]int)
+	}
+	r.reads[did]++
+	return r.read(did)
+}
+
+func (r *dependencyRepoFake) ReadDataByIDForShare(_ context.Context, _ *sqlx.Tx, did string) (*db.ContractTemplate, error) {
+	if r.shareReads == nil {
+		r.shareReads = make(map[string]int)
+	}
+	r.shareReads[did]++
+	return r.read(did)
+}
+
+func (r *dependencyRepoFake) read(did string) (*db.ContractTemplate, error) {
 	template := r.templates[did]
 	if template == nil {
 		return nil, fmt.Errorf("%w: %s", db.ErrContractTemplateNotFound, did)

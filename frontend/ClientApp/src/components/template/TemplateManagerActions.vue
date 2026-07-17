@@ -3,7 +3,10 @@ import { computed, normalizeClass, ref, useAttrs, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmationModal from '@/components/ConfirmationModal.vue'
 import { useTemplatePermissions } from '@/modules/template-repository/composables/useTemplatePermissions'
-import { TemplateType } from '@/modules/template-repository/models/contract-template'
+import {
+  canManagerPublishTemplate,
+  canManagerRegisterTemplate,
+} from '@/modules/template-repository/utils/template-manager-lifecycle'
 import { ROUTES } from '@/router/router'
 import { contractTemplateService } from '@/services/contract-template-service'
 import { type ContractTemplateState, TemplateState } from '@/types/contract-template-state'
@@ -52,21 +55,9 @@ const canArchive = computed(() => {
 })
 const canDelete = computed(() => isManager.value && props.template.state === TemplateState.deprecated)
 
-const showPublishButton = computed(() => {
-  return (
-    isManager.value &&
-    props.template.state === TemplateState.registered &&
-    props.template.template_type === TemplateType.contractTemplate
-  )
-})
+const showPublishButton = computed(() => canManagerPublishTemplate(isManager.value, props.template))
 
-const showRegisterButton = computed(() => {
-  return (
-    isManager.value &&
-    props.template.state === TemplateState.approved &&
-    props.template.template_type === TemplateType.contractTemplate
-  )
-})
+const showRegisterButton = computed(() => canManagerRegisterTemplate(isManager.value, props.template))
 
 const archive = async () => {
   try {
@@ -148,7 +139,14 @@ async function register() {
   <p v-if="registrationError" data-test-id="template-register-error" class="text-sm text-error">
     {{ registrationError }}
   </p>
-  <button v-if="showPublishButton" :class="$attrs.class" :disabled="isPublishing" @click="publish">
+  <button
+    v-if="showPublishButton"
+    data-test-id="template-manager-publish"
+    :data-test-key="template.did"
+    :class="$attrs.class"
+    :disabled="isPublishing"
+    @click="publish"
+  >
     <span v-if="isPublishing" class="loading loading-sm loading-spinner"></span>
     Publish
   </button>

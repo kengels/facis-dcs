@@ -117,6 +117,20 @@ Feature: Template Repository browser evidence
     When I open the details UI for template "Managed Browser Template"
     Then UI element "template-lifecycle-status" contains "Deprecated"
 
+  @clean_db @REQ-component-template-lifecycle-AC1 @REQ-component-template-lifecycle-AC2 @DCS-FR-TR-08 @DCS-FR-TR-14 @DCS-FR-TR-15 @DCS-IR-TR-07 @DCS-IR-SI-01 @UC-02
+  Scenario: A manager registers and publishes a component template through the UI
+    Given component template "Managed Browser Component" is in "Approved" status
+    And I am signed in through the DCS login page and test wallet as "Template Manager"
+    When I open UI route "/templates"
+    Then template UI element "template-manager-register" for "Managed Browser Component" is visible
+    When I click template UI control "template-manager-register" for "Managed Browser Component"
+    Then template UI element "template-search-result" for "Managed Browser Component" contains "Registered"
+    And template UI element "template-manager-publish" for "Managed Browser Component" is visible
+    When I click template UI control "template-manager-publish" for "Managed Browser Component"
+    Then UI element "template-manager-confirmation" is visible
+    When I click template UI control "template-manager-confirm" for "Managed Browser Component"
+    Then template UI element "template-search-result" for "Managed Browser Component" contains "Published"
+
   @clean_db @REQ-ui-gap-resolution-AC4 @DCS-FR-TR-18
   Scenario: A deprecated template can be soft-deleted and is excluded from reuse
     Given template "Deleted Browser Template" is in "Approved" status
@@ -150,7 +164,54 @@ Feature: Template Repository browser evidence
     And UI element "template-hierarchy-tree" is visible
     And UI element "template-hierarchy-dependencies" is visible
 
-  @clean_db @REQ-ui-gap-resolution-AC6 @DCS-FR-TR-26
+  @clean_db @REQ-show-available-components-in-template-creation-AC1 @REQ-component-template-lifecycle-AC4 @REQ-select-components-in-new-template-draft-AC1 @REQ-select-components-in-new-template-draft-AC2 @DCS-IR-TR-01 @DCS-FR-TR-01 @DCS-FR-TR-23 @DCS-FR-TR-25 @UC-02-01 @UC-02-07
+  Scenario Outline: A reusable component is selected and persisted while creating a contract template
+    Given component template "Reusable Browser Component" is available in "<state>" status
+    And I am signed in through the DCS login page and test wallet as "Template Creator"
+    When I open UI route "/templates/new"
+    And I click UI control "template-type-contract"
+    And I fill these UI controls:
+      | test_id                     | value                            |
+      | template-editor-name        | Component Snapshot Browser Draft |
+      | template-editor-description | Persists an immutable component   |
+    And I click UI control "template-component-add"
+    Then the component picker shows template "Reusable Browser Component" with its name and DID
+    When I fill UI control "template-component-reference" with the DID of template "Reusable Browser Component"
+    And I click UI control "template-component-save"
+    Then template UI element "template-hierarchy-node" for "Reusable Browser Component" contains "Reusable Browser Component"
+    When I click UI control "template-editor-save"
+    Then UI element "template-save-result" contains "Draft"
+    When I remember data-test-key from UI element "template-save-result" as "component-snapshot-template"
+    And I click keyed UI control "template-search-result-edit" with remembered key "component-snapshot-template"
+    Then template UI element "template-hierarchy-node" for "Reusable Browser Component" contains "Reusable Browser Component"
+    And persisted template with remembered key "component-snapshot-template" contains a complete snapshot of component "Reusable Browser Component"
+
+    Examples:
+      | state      |
+      | REGISTERED |
+      | PUBLISHED  |
+
+  @clean_db @REQ-select-components-in-new-template-draft-AC3 @DCS-IR-TR-01 @DCS-FR-TR-01 @DCS-FR-TR-23 @DCS-FR-TR-26 @UC-02-01 @UC-02-07
+  Scenario: Creation is atomic when a locally selected component becomes unavailable
+    Given component template "Vanishing Browser Component" is available in "REGISTERED" status
+    And I am signed in through the DCS login page and test wallet as "Template Creator"
+    When I open UI route "/templates/new"
+    And I click UI control "template-type-contract"
+    And I fill these UI controls:
+      | test_id                     | value                           |
+      | template-editor-name        | Atomic Component Browser Draft  |
+      | template-editor-description | Must not be partially persisted |
+    And I click UI control "template-component-add"
+    And I fill UI control "template-component-reference" with the DID of template "Vanishing Browser Component"
+    And I click UI control "template-component-save"
+    Then template UI element "template-hierarchy-node" for "Vanishing Browser Component" contains "Vanishing Browser Component"
+    When component template "Vanishing Browser Component" becomes unavailable for reuse
+    And I click UI control "template-editor-save"
+    Then UI element "template-create-error" contains "dependency"
+    And current UI route is "/templates/new"
+    And template "Atomic Component Browser Draft" does not exist in the repository
+
+  @clean_db @REQ-ui-gap-resolution-AC6 @REQ-select-components-in-new-template-draft-AC4 @DCS-FR-TR-23 @DCS-FR-TR-26 @UC-02-07
   Scenario Outline: Authoritative dependency validation blocks missing and malformed references
     Given template "Dependency Browser Template" is in "Draft" status
     And I am signed in through the DCS login page and test wallet as "Template Creator"
@@ -168,7 +229,7 @@ Feature: Template Repository browser evidence
       | did:web:missing.example:template  | missing |
       | urn:not-a-valid-template-reference | invalid |
 
-  @clean_db @REQ-ui-gap-resolution-AC6 @DCS-FR-TR-26
+  @clean_db @REQ-ui-gap-resolution-AC6 @REQ-select-components-in-new-template-draft-AC4 @DCS-FR-TR-23 @DCS-FR-TR-26 @UC-02-07
   Scenario: Authoritative dependency validation blocks a real self-cycle
     Given template "Cyclic Browser Template" is in "Draft" status
     And I am signed in through the DCS login page and test wallet as "Template Creator"

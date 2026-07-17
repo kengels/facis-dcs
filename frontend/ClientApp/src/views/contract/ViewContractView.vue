@@ -242,23 +242,6 @@ const exportPDF = async () => {
                   </div>
                 </section>
 
-                <section class="card mt-4 border border-base-300 bg-base-100">
-                  <div class="card-body gap-2 text-sm">
-                    <p data-test-id="contract-party-list">
-                      {{ contract.contract_data?.['dcs:parties']?.map((item) => item['@id']).join(', ') }}
-                    </p>
-                    <p data-test-id="contract-asset-list">
-                      {{ contract.contract_data?.['dcs:assets']?.map((item) => item['@id']).join(', ') }}
-                    </p>
-                    <p data-test-id="contract-policy-list">
-                      {{ contract.contract_data?.['dcs:policyTypes']?.map((item) => item['@id']).join(', ') }}
-                    </p>
-                    <p data-test-id="contract-evidence-list">
-                      {{ contract.contract_data?.['dcs:evidence']?.map((item) => item['@id']).join(', ') }}
-                    </p>
-                  </div>
-                </section>
-
                 <section data-test-id="contract-dashboard-history" class="card mt-4 border border-base-300 bg-base-100">
                   <div class="card-body">
                     <h2 class="card-title text-sm">Lifecycle history</h2>

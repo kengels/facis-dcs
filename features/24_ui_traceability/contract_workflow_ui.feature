@@ -3,33 +3,32 @@ Feature: Contract Workflow browser evidence
   Contract creation, governance, monitoring, and lifecycle actions are
   performed and verified through the delivered product UI.
 
-  @clean_db @REQ-ui-traceability-playwright-evidence-AC7 @REQ-ui-gap-resolution-AC7 @DCS-IR-CWE-01 @DCS-IR-CWE-02 @DCS-FR-CWE-03 @DCS-FR-CWE-13 @DCS-FR-CWE-14
-  Scenario: A creator persists a populated contract draft and submits it
+  @clean_db @REQ-remove-ad-hoc-contract-prefill-AC1 @REQ-remove-ad-hoc-contract-prefill-AC3 @REQ-remove-ad-hoc-contract-prefill-AC5 @REQ-ui-traceability-playwright-evidence-AC7 @REQ-ui-gap-resolution-AC7 @DCS-IR-CWE-01 @DCS-FR-CWE-03 @DCS-FR-CWE-13 @DCS-FR-CWE-14
+  Scenario: A creator edits the single contract name after creating a draft and submits it
     Given template "Contract Browser Template" is approved and available
+    And named contract "Parent Browser Contract" has reached contract state "DRAFT"
     And I am signed in through the DCS login page and test wallet as "Contract Creator"
     When I open UI route "/contracts/new"
     And I select template "Contract Browser Template" in UI control "contract-create-template"
-    And I fill these UI controls:
-      | test_id                 | value                         |
-      | contract-create-name    | Browser Evidence Contract     |
-      | contract-create-party   | did:web:buyer.example         |
-      | contract-create-asset   | urn:asset:browser-evidence    |
-      | contract-create-policy  | dcs:ServiceLevelAgreement     |
-      | contract-create-evidence | urn:evidence:browser-evidence |
+    Then exactly 1 UI element "contract-create-template" is visible
+    And UI element "contract-create-parent" is visible
+    When I click UI control "contract-create-save-draft"
+    Then exactly 1 UI element "contract-create-name" is visible
+    When I remember data-test-key from UI element "contract-create-name" as "created-contract"
+    And I fill UI control "contract-create-name" with "Browser Evidence Contract"
     And I click UI control "contract-create-save-draft"
-    Then UI element "contract-save-result" contains "Draft"
-    When I open the contract from UI element "contract-save-result"
-    And I reload the current UI route
-    Then UI element "contract-party-list" contains "did:web:buyer.example"
-    And UI element "contract-asset-list" contains "urn:asset:browser-evidence"
-    And UI element "contract-policy-list" contains "dcs:ServiceLevelAgreement"
-    And UI element "contract-evidence-list" contains "urn:evidence:browser-evidence"
+    Then current UI route is "/contracts"
+    When I navigate using remembered key "created-contract" to UI route "/contracts/edit"
+    Then exactly 1 UI element "contract-create-name" is visible
+    And UI element "contract-create-name" contains "Browser Evidence Contract"
     When I click UI control "contract-submit-review"
     And I fill these UI controls:
       | test_id                         | value                        |
       | contract-participants-reviewer  | did:web:reviewer.example     |
       | contract-participants-approver  | did:web:approver.example     |
     And I click UI control "contract-participants-submit"
+    Then current UI route is "/contracts"
+    When I navigate using remembered key "created-contract" to UI route "/contracts/view"
     Then UI element "contract-lifecycle-status" contains "Submitted"
     And UI element "contract-template-reference" contains the DID of template "Contract Browser Template"
 

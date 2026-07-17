@@ -44,6 +44,7 @@ RETURN {
   description: ct.description,
   version: ct.version,
   state: ct.state,
+  templateType: ct.templateType,
   template_uuid: ct.templateUuid
 } AS n
 LIMIT 1
@@ -116,7 +117,22 @@ func (h *GetByIDHandler) Handle(ctx context.Context, qry GetByIDQry) (*templatec
 		}
 	}
 
-	templateData, err := fcasset.FetchDocument(ctx, qry.DID)
+	return enrichCatalogueDetailWithDocument(ctx, qry.DID, result, fcasset.FetchDocument)
+}
+
+type templateDocumentFetcher func(context.Context, string) (map[string]any, error)
+
+func enrichCatalogueDetailWithDocument(
+	ctx context.Context,
+	did string,
+	result *templatecatalogueintegration.TemplateCatalogueRetrieveByIDResponse,
+	fetchDocument templateDocumentFetcher,
+) (*templatecatalogueintegration.TemplateCatalogueRetrieveByIDResponse, error) {
+	if !fcasset.IsDIDWebIdentifier(did) {
+		return result, nil
+	}
+
+	templateData, err := fetchDocument(ctx, did)
 	if errors.Is(err, fcasset.ErrRemoteTemplateNotFound) {
 		return result, nil
 	}
@@ -139,9 +155,10 @@ func mapCatalogueDetail(n map[string]interface{}) *templatecatalogueintegration.
 	}
 
 	return &templatecatalogueintegration.TemplateCatalogueRetrieveByIDResponse{
-		Did:         did,
-		Version:     ptr.Ref(ptr.IntFromMap(n, "version")),
-		Name:        ptr.Ref(ptr.StringFromMap(n, "name")),
-		Description: ptr.Ref(ptr.StringFromMap(n, "description")),
+		Did:          did,
+		Version:      ptr.Ref(ptr.IntFromMap(n, "version")),
+		Name:         ptr.Ref(ptr.StringFromMap(n, "name")),
+		Description:  ptr.Ref(ptr.StringFromMap(n, "description")),
+		TemplateType: ptr.Ref(ptr.StringFromMap(n, "templateType")),
 	}
 }

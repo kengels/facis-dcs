@@ -126,6 +126,7 @@ func SeedTemplateResource(
 	did string,
 	version int,
 	state string,
+	templateType string,
 	name string,
 	description string,
 ) TemplateSeed {
@@ -139,6 +140,7 @@ func SeedTemplateResource(
 			did,
 			version,
 			state,
+			templateType,
 			name,
 			description,
 		),

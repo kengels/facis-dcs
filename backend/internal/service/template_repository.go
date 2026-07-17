@@ -78,7 +78,8 @@ func mapTemplateCommandError(err error) error {
 	if errors.Is(err, validation.ErrDocumentSchemaConflict) ||
 		errors.Is(err, dependency.ErrInvalidDID) ||
 		errors.Is(err, dependency.ErrTemplateNotFound) ||
-		errors.Is(err, dependency.ErrCycle) {
+		errors.Is(err, dependency.ErrCycle) ||
+		errors.Is(err, dependency.ErrTemplateNotReusable) {
 		return templaterepository.MakeBadRequest(err)
 	}
 	return templaterepository.MakeInternalError(err)
@@ -97,7 +98,7 @@ func (s *templateRepositorysrvc) ValidateDependency(ctx context.Context, req *te
 		}
 	}()
 
-	template, err := dependency.ValidateReference(ctx, tx, s.CTRepo, req.TemplateDid, req.ReferenceDid)
+	template, err := dependency.ValidateReusableReference(ctx, tx, s.CTRepo, req.TemplateDid, req.ReferenceDid)
 	if err != nil {
 		switch {
 		case errors.Is(err, dependency.ErrInvalidDID):
@@ -106,6 +107,8 @@ func (s *templateRepositorysrvc) ValidateDependency(ctx context.Context, req *te
 			return nil, templaterepository.MakeDependencyTemplateNotFound(err)
 		case errors.Is(err, dependency.ErrCycle):
 			return nil, templaterepository.MakeDependencyCycle(err)
+		case errors.Is(err, dependency.ErrTemplateNotReusable):
+			return nil, templaterepository.MakeDependencyTemplateNotFound(err)
 		default:
 			return nil, templaterepository.MakeInternalError(err)
 		}

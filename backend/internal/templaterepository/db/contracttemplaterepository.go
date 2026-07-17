@@ -102,6 +102,7 @@ type ContractTemplateRepo interface {
 	Create(ctx context.Context, tx *sqlx.Tx, data ContractTemplate) (*time.Time, error)
 	ReadHistoryByDID(ctx context.Context, tx *sqlx.Tx, did string) ([]ContractTemplateHistory, error)
 	ReadDataByID(ctx context.Context, tx *sqlx.Tx, did string) (*ContractTemplate, error)
+	ReadDataByIDForShare(ctx context.Context, tx *sqlx.Tx, did string) (*ContractTemplate, error)
 	ReadAllMetaData(ctx context.Context, tx *sqlx.Tx, pagination datatype.Pagination) ([]ContractTemplateMetadata, error)
 	ReadAllMetaDataByFilter(ctx context.Context, tx *sqlx.Tx, values SearchValues, pagination datatype.Pagination) ([]ContractTemplateMetadata, error)
 	ReadProcessDataByDID(ctx context.Context, tx *sqlx.Tx, did string) (*ContractTemplateProcessData, error)

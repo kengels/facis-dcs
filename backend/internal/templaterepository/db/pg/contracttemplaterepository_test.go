@@ -43,6 +43,11 @@ func TestCreateQueryStateChangePreservesCachedPdf(t *testing.T) {
 	}
 }
 
+func TestReadDataByIDForShareQueryLocksReferencedTemplate(t *testing.T) {
+	assert.NotContains(t, readDataByIDQuery(false), "FOR SHARE")
+	assert.Contains(t, readDataByIDQuery(true), "FOR SHARE")
+}
+
 func ptrString(value string) *string {
 	return &value
 }

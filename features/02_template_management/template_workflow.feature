@@ -56,12 +56,13 @@ Feature: Template Approval Workflow
     When I approve template "Standard NDA"
     Then the template status is "Approved"
 
-  @clean_db
-  Scenario: Register approved template
+  @clean_db @REQ-component-template-lifecycle-AC1 @DCS-FR-TR-08 @DCS-FR-TR-14 @DCS-FR-TR-15 @DCS-IR-TR-07 @UC-02
+  Scenario: Register an approved component template
     Given I am authenticated with roles: "Template Manager"
-    And template "Standard NDA" is in "Approved" status
-    When I register template "Standard NDA"
+    And component template "Reusable Terms" is in "Approved" status
+    When I register template "Reusable Terms"
     Then the template status is "Registered"
+    And template "Reusable Terms" has template type "COMPONENT"
 
   @clean_db
   Scenario: Resubmit template for review

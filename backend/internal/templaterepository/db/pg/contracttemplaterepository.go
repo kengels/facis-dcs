@@ -141,12 +141,15 @@ func (r *PostgresContractTemplateRepo) Create(ctx context.Context, tx *sqlx.Tx, 
 }
 
 func (r *PostgresContractTemplateRepo) ReadDataByID(ctx context.Context, tx *sqlx.Tx, did string) (*db.ContractTemplate, error) {
-	query := `
-        SELECT did, document_number, version, state, name, description,
-               created_by, created_at, updated_at, template_data, template_type,
-               base_template
-        FROM contract_templates WHERE did = $1
-    `
+	return r.readDataByID(ctx, tx, did, false)
+}
+
+func (r *PostgresContractTemplateRepo) ReadDataByIDForShare(ctx context.Context, tx *sqlx.Tx, did string) (*db.ContractTemplate, error) {
+	return r.readDataByID(ctx, tx, did, true)
+}
+
+func (r *PostgresContractTemplateRepo) readDataByID(ctx context.Context, tx *sqlx.Tx, did string, forShare bool) (*db.ContractTemplate, error) {
+	query := readDataByIDQuery(forShare)
 	var ct db.ContractTemplate
 	err := tx.GetContext(ctx, &ct, query, did)
 	if err != nil {
@@ -156,6 +159,19 @@ func (r *PostgresContractTemplateRepo) ReadDataByID(ctx context.Context, tx *sql
 		return nil, err
 	}
 	return &ct, nil
+}
+
+func readDataByIDQuery(forShare bool) string {
+	query := `
+        SELECT did, document_number, version, state, name, description,
+               created_by, created_at, updated_at, template_data, template_type,
+               base_template
+        FROM contract_templates WHERE did = $1
+    `
+	if forShare {
+		query += " FOR SHARE"
+	}
+	return query
 }
 
 // ReadAllMetaData computes "is this the latest version?" at read time via a

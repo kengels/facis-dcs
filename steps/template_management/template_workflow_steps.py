@@ -17,6 +17,7 @@ from steps.support.api_client import (
     template_retrieve_by_id_url,
     template_search_url,
     template_submit_url,
+    template_publish_url,
     template_update_url,
     template_verify_url,
 )
@@ -95,11 +96,15 @@ def step_given_templates_exist_with_name_and_description(context, name, title):
     did, updated_at = TemplateService.create_fresh_template(context, name, title=title)
     TemplateService.store_named(context, name, did, updated_at)
 
-def _approve_named_template(context, name):
+def _approve_named_template(context, name, template_type=None):
     # Pass the scenario's template name through to the API — the catalogue
     # search scenarios match on the template's REAL name in the Federated
     # Catalogue self-description, not on the harness-side alias.
-    did, updated_at = TemplateService.create_fresh_template(context, name=name)
+    did, updated_at = TemplateService.create_fresh_template(
+        context,
+        name=name,
+        template_type=template_type,
+    )
     updated_at = TemplateService.do_submit(context, did, updated_at)
     updated_at = TemplateService.do_recommend_for_approval(context, did, updated_at)
     headers = AuthService.get_headers_for_roles(["Template Approver"])
@@ -125,6 +130,37 @@ def step_given_template_approved_status(context, name):
     # Approve only — scenarios using this Given transition FROM Approved
     # (e.g. "Register approved template") and must not pre-register.
     _approve_named_template(context, name)
+
+
+@given('component template "{name}" is in "Approved" status')
+def step_given_component_template_approved(context, name):
+    _approve_named_template(context, name, TemplateService.COMPONENT_TEMPLATE_TYPE)
+
+
+@given('component template "{name}" is available in "{state}" status')
+def step_given_component_template_available(context, name, state):
+    normalized_state = state.strip().upper()
+    assert normalized_state in {"REGISTERED", "PUBLISHED"}, (
+        f"Reusable component fixtures support REGISTERED or PUBLISHED, got {state!r}"
+    )
+    _approve_named_template(context, name, TemplateService.COMPONENT_TEMPLATE_TYPE)
+    _register_named_template(context, name)
+    if normalized_state == "PUBLISHED":
+        template = TemplateService.named(context, name)
+        manager_headers = AuthService.get_headers_for_roles(["Template Manager"])
+        publish_resp = post_json(
+            context,
+            template_publish_url(context),
+            {"did": template["did"], "updated_at": template["updated_at"]},
+            headers=manager_headers,
+        )
+        assert publish_resp.status_code == 200, f"Template publish failed: {publish_resp.text}"
+        updated_at = TemplateService.fetch_template(
+            context,
+            template["did"],
+            headers=manager_headers,
+        ).get("updated_at")
+        TemplateService.store_named(context, name, template["did"], updated_at)
 
 
 def _register_named_template(context, name):
@@ -232,6 +268,25 @@ def step_when_register_template(context, name):
     context.requests_response = post_json(
         context, template_register_url(context), {"did": t["did"], "updated_at": t["updated_at"]}
     )
+
+
+@when('component template "{name}" becomes unavailable for reuse')
+def step_when_component_becomes_unavailable(context, name):
+    template = TemplateService.named(context, name)
+    manager_headers = AuthService.get_headers_for_roles(["Template Manager"])
+    response = post_json(
+        context,
+        template_archive_url(context),
+        {"did": template["did"], "updated_at": template["updated_at"]},
+        headers=manager_headers,
+    )
+    assert response.status_code == 200, (
+        f"Component {name!r} could not be made unavailable: "
+        f"{response.status_code} {response.text}"
+    )
+    body = TemplateService.fetch_template(context, template["did"], headers=manager_headers)
+    assert str(body.get("state", "")).upper() == "DEPRECATED", body
+    TemplateService.store_named(context, name, template["did"], body.get("updated_at"))
 
 @when('I reject template "{name}" with reason "{reason}"')
 def step_when_reject_template(context, name, reason):
@@ -564,6 +619,27 @@ def step_then_template_status(context, expected_status):
     assert actual == expected_status.upper(), (
         f"Template state mismatch: expected '{expected_status.upper()}', got '{actual}'"
     )
+
+
+@then('template "{name}" has template type "{expected_type}"')
+def step_then_template_has_type(context, name, expected_type):
+    template = TemplateService.named(context, name)
+    body = TemplateService.fetch_template(context, template["did"])
+    actual_type = str(body.get("template_type", "")).upper()
+    assert actual_type == expected_type.upper(), (
+        f"Template type mismatch for {name!r}: expected {expected_type!r}, "
+        f"got {body.get('template_type')!r}"
+    )
+
+
+@then('template "{name}" does not exist in the repository')
+def step_then_template_does_not_exist(context, name):
+    creator_headers = AuthService.get_headers_for_roles(["Template Creator"])
+    body = TemplateService.fetch_all_templates(context, headers=creator_headers)
+    templates = body.get("contract_templates", []) if isinstance(body, dict) else body
+    assert isinstance(templates, list), f"Expected template list, got {body!r}"
+    matches = [item for item in templates if isinstance(item, dict) and item.get("name") == name]
+    assert not matches, f"Template creation was not atomic; found persisted entries: {matches!r}"
 
 
 @then('the template is available for contract generation')

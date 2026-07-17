@@ -10,6 +10,7 @@ indirectly by the passing "register" scenarios in template_workflow.feature.
 from behave import given, then, when
 
 from steps.support.api_client import (
+    catalogue_template_retrieve_by_id_url,
     catalogue_template_retrieve_url,
     catalogue_template_search_url,
     post_json,
@@ -74,6 +75,42 @@ def step_when_search_catalogue(context, name):
     )
 
 
+@when('I retrieve the catalogue detail for template "{name}"')
+def step_when_retrieve_catalogue_detail(context, name):
+    import requests as _requests  # noqa: PLC0415
+
+    versions = getattr(context, "catalogue_detail_versions", None)
+    if versions is None:
+        versions = {}
+        context.catalogue_detail_versions = versions
+    if name not in versions:
+        template = TemplateService.named(context, name)
+        matching_item = next(
+            (
+                item
+                for item in _catalogue_items(context)
+                if isinstance(item, dict) and item.get("did") == template["did"]
+            ),
+            None,
+        )
+        assert matching_item is not None, (
+            f"Catalogue list/search result has no entry for detail retrieval of {name!r}"
+        )
+        version = matching_item.get("version")
+        assert isinstance(version, int), (
+            f"Catalogue entry for {name!r} has no integer version: {matching_item!r}"
+        )
+        versions[name] = version
+
+    template = TemplateService.named(context, name)
+    context.requests_response = _requests.get(
+        catalogue_template_retrieve_by_id_url(context, template["did"]),
+        params={"version": versions[name]},
+        headers=getattr(context, "headers", {}),
+        timeout=context.http_timeout_seconds,
+    )
+
+
 def _catalogue_items(context):
     body = context.requests_response.json()
     if isinstance(body, dict):
@@ -98,7 +135,11 @@ def _poll_catalogue_for_template(context, name, refetch):
         items = _catalogue_items(context)
         dids = [i.get("did") for i in items if isinstance(i, dict)]
         if t["did"] in dids:
-            return
+            return next(
+                item
+                for item in items
+                if isinstance(item, dict) and item.get("did") == t["did"]
+            )
         time.sleep(2)
         refetch(context)
         assert context.requests_response.status_code == 200, (
@@ -121,3 +162,49 @@ def step_then_catalogue_search_includes(context, name):
     _poll_catalogue_for_template(
         context, name, lambda ctx: step_when_search_catalogue(ctx, name)
     )
+
+
+def _assert_catalogue_component(item, name):
+    actual_type = str(item.get("template_type", "")).upper()
+    assert actual_type == TemplateService.COMPONENT_TEMPLATE_TYPE, (
+        f"Expected catalogue projection for {name!r} to preserve "
+        f"template_type={TemplateService.COMPONENT_TEMPLATE_TYPE!r}, got {item!r}"
+    )
+
+
+@then('the catalogue result includes component template "{name}"')
+def step_then_catalogue_includes_component(context, name):
+    item = _poll_catalogue_for_template(context, name, step_when_retrieve_catalogue)
+    _assert_catalogue_component(item, name)
+
+
+@then('the catalogue search result includes component template "{name}"')
+def step_then_catalogue_search_includes_component(context, name):
+    item = _poll_catalogue_for_template(
+        context,
+        name,
+        lambda ctx: step_when_search_catalogue(ctx, name),
+    )
+    _assert_catalogue_component(item, name)
+
+
+@then('the catalogue detail roundtrip returns component template "{name}"')
+def step_then_catalogue_detail_returns_component(context, name):
+    import time  # noqa: PLC0415
+
+    deadline = time.monotonic() + 60
+    while context.requests_response.status_code != 200 and time.monotonic() < deadline:
+        time.sleep(2)
+        step_when_retrieve_catalogue_detail(context, name)
+
+    assert context.requests_response.status_code == 200, (
+        f"Catalogue detail retrieval for {name!r} failed: "
+        f"{context.requests_response.status_code} {context.requests_response.text}"
+    )
+    item = context.requests_response.json()
+    assert isinstance(item, dict), f"Expected catalogue detail object, got {item!r}"
+    expected_did = TemplateService.named(context, name)["did"]
+    assert item.get("did") == expected_did, (
+        f"Catalogue detail DID mismatch for {name!r}: expected {expected_did!r}, got {item!r}"
+    )
+    _assert_catalogue_component(item, name)

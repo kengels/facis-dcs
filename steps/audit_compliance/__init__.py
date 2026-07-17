@@ -3,3 +3,4 @@
 # Import the step module to register it with behave
 from . import dcs_process_audit_steps  # noqa: F401
 from . import audit_ui_archive_orce_steps  # noqa: F401
+from . import composition_aware_template_audit_steps  # noqa: F401

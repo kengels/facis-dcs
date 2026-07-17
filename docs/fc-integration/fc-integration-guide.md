@@ -68,7 +68,7 @@ Our use case focuses on:
 
 - Submit template schema (ontology + SCHACL) to FC
 - Every new DCS instance should Init participant and service SD to FC
-- Publishing approval contract templates (resource SD) to FC
+- Publishing registered contract templates and component templates (resource SD) to FC
 - Discovering templates on FC
 - Resolving the corresponding DCS endpoint by template DID
 - Start DCS-to-DCS negotiation
@@ -82,8 +82,16 @@ Fields:
 - `did`
 - `documentNumber`
 - `version`
+- `templateType` (`CONTRACT_TEMPLATE` or `COMPONENT`)
 - `participantId`
 - ...
+
+Contract templates and reusable component templates are published with the
+same RDF type, `dcs:ContractTemplate`. The product-level distinction is carried
+by `dcs:templateType`. Catalogue list, detail, and search responses return this
+field so a `COMPONENT` remains a component after publication and retrieval.
+The DCS catalogue adapter validates the value before publishing; no separate
+component endpoint or catalogue class is used.
 
 ### ServiceOffering
 

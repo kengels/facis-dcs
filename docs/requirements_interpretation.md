@@ -25,8 +25,8 @@ agent_rules:
 
 summary:
   total_entries: 290
-  adjusted_entries: 13
-  unchanged_entries: 277
+  adjusted_entries: 21
+  unchanged_entries: 269
 
 
 ## System Requirements
@@ -360,7 +360,7 @@ effective_requirement: |
 id: DCS-FR-TR-07
 area: Functional Requirements
 implementation_status: Ongoing
-interpretation_status: Unchanged
+interpretation_status: Clarified Composition Audit Scope
 source_requirement: |
   The Template Repository MUST validate templates against regulatory frameworks before they can
   be used in contract creation, with the specific frameworks depending on the use case domain.
@@ -376,7 +376,16 @@ effective_requirement: |
   they are applied in digital agreements, adhering to the relevant regulations for each domain.
   The validation occurs over the process audit and compliance component of the Digital
   Contracting Service, which provides access to a user with the Compliance Officer role over the
-  non-compliance investigation tool.
+  non-compliance investigation tool. For composed contract templates, content-policy checks MUST
+  evaluate the root together with its immediate persisted component snapshots.
+effective_acceptance_criteria: |
+  Immediate component content can satisfy composition-wide data, clause-binding, policy, domain,
+  constraint, and required-field rules; malformed root or component content remains visible as a
+  finding. Root structure, metadata, and lifecycle rules remain scoped to the root template.
+implementation_decision: |
+  Build a read-only evaluation view from the stored root and immediate snapshots. Do not mutate
+  snapshots, resolve their DIDs against current repository state, or recursively evaluate nested
+  snapshots. Domain-specific regulatory rule packs remain ongoing.
 
 ### DCS-FR-TR-08 - Provenance Tracking
 id: DCS-FR-TR-08
@@ -564,7 +573,7 @@ effective_requirement: |
 id: DCS-FR-TR-20
 area: Functional Requirements
 implementation_status: Ongoing
-interpretation_status: Unchanged
+interpretation_status: Clarified Persisted Composition Verification
 source_requirement: |
   The system MUST provide an endpoint (/template/verify/{template_id}) that enables Template
   Users to verify the integrity and compliance of a retrieved template, ensuring that it adheres
@@ -572,7 +581,17 @@ source_requirement: |
 effective_requirement: |
   The system MUST provide an endpoint (/template/verify/{template_id}) that enables Template
   Users to verify the integrity and compliance of a retrieved template, ensuring that it adheres
-  to regulatory standards and has not been altered since approval.
+  to regulatory standards and has not been altered since approval. Policy-audit verification of
+  a composed contract template MUST use its persisted immediate component snapshots rather than
+  current repository versions.
+effective_acceptance_criteria: |
+  Repeating the audit after the reusable component changes evaluates the unchanged embedded
+  snapshot; findings identify whether invalid content originates below an immediate snapshot;
+  standalone component audits continue to use component-specific rules.
+implementation_decision: |
+  Keep verification read-only and reproducible. The technical finding path is prefixed with the
+  persisted snapshot location for component findings; nested snapshots are outside the immediate
+  evaluation boundary.
 
 ### DCS-FR-TR-21 - Audit Logs for Template Changes
 id: DCS-FR-TR-21
@@ -605,18 +624,28 @@ effective_requirement: |
 ### DCS-FR-TR-23 - Structural Dependency Mapping
 id: DCS-FR-TR-23
 area: Functional Requirements
-implementation_status: Ongoing
-interpretation_status: Unchanged
+implementation_status: Done
+interpretation_status: Clarified Snapshot And Authoring Semantics
 source_requirement: |
   The Template Repository MUST allow Template Managers to define and enforce dependencies
   between frame contracts, contracts, contract components, and appendices, preventing
   misconfiguration of multi-part templates and ensuring structural consistency at runtime.
 effective_requirement: |
-  The Template Repository MUST allow Template Managers to define and enforce dependencies
-  between frame contracts, contracts, contract components, and appendices, preventing
-  misconfiguration of multi-part templates and ensuring structural consistency at runtime.
-context_note: |
-  simplistic implementation
+  The Template Repository MUST allow authorized template authors to define and enforce
+  dependencies between frame contracts, contracts, contract components, and appendices. While
+  creating a contract-template draft, a Template Creator can select a reusable component in
+  REGISTERED or PUBLISHED state. The draft stores the component's complete authoritative
+  snapshot rather than only a display reference.
+effective_acceptance_criteria: |
+  A Template Creator can select a REGISTERED or PUBLISHED component by name and DID in a new
+  contract-template draft; the complete authoritative component snapshot is loaded and persists
+  with the created draft; reopening the draft immediately displays the persisted component.
+implementation_decision: |
+  Reuse the existing dcs:subTemplates snapshot model. Resolve the selected DID through the
+  authoritative template read endpoint before adding it to the local draft, then revalidate each
+  direct dependency in the create/update transaction before persistence. Policy audits consume
+  the persisted content of immediate snapshots as a read-only evaluation view; they do not
+  resolve the dependency again or recursively walk nested snapshots.
 
 ### DCS-FR-TR-24 - Structural Export in Unified Format
 id: DCS-FR-TR-24
@@ -637,28 +666,48 @@ context_note: |
 ### DCS-FR-TR-25 - Multi-Contract Template Builder
 id: DCS-FR-TR-25
 area: Functional Requirements
-implementation_status: Not Started
-interpretation_status: Unchanged
+implementation_status: Done
+interpretation_status: Clarified Component Selection
 source_requirement: |
   The Template Repository MUST provide a visual interface for Template Managers to compose
   contract templates with nested contracts, appendices, and components, enhancing usability,
   reducing errors, and simplifying the management of complex contract structures.
 effective_requirement: |
-  The Template Repository MUST provide a visual interface for Template Managers to compose
-  contract templates with nested contracts, appendices, and components, enhancing usability,
-  reducing errors, and simplifying the management of complex contract structures.
+  The Template Repository MUST provide a visual interface for authorized template authors to
+  compose contract templates with nested contracts, appendices, and components. In a new
+  contract-template draft, the builder MUST offer reusable REGISTERED and PUBLISHED components
+  and display a selected component in the hierarchy before and after persistence.
+effective_acceptance_criteria: |
+  The component picker shows each reusable component with name and DID; selecting one loads its
+  complete authoritative snapshot; saving and reopening the draft preserves the hierarchy node
+  and snapshot data.
+implementation_decision: |
+  Use the existing template builder and hierarchy view. Component selection is available before
+  the parent draft has a DID and therefore performs an authoritative read without prematurely
+  persisting the parent.
 
 ### DCS-FR-TR-26 - Logical Validation of Structural Dependencies
 id: DCS-FR-TR-26
 area: Functional Requirements
-implementation_status: Not Started
-interpretation_status: Unchanged
+implementation_status: Done
+interpretation_status: Clarified Atomic Validation Semantics
 source_requirement: |
   The system MUST check for consistency and validity of logical dependencies before usage to
   prevent invalid combinations of template components and enforces business rules
 effective_requirement: |
-  The system MUST check for consistency and validity of logical dependencies before usage to
-  prevent invalid combinations of template components and enforces business rules
+  The system MUST validate direct template dependencies both when they are selected and whenever
+  a template is created or updated. A direct dependency MUST exist, be a COMPONENT, be
+  REGISTERED or PUBLISHED, and not introduce a self-reference or cycle. Failed validation MUST
+  leave create/update persistence unchanged.
+effective_acceptance_criteria: |
+  Missing, malformed, self-cyclic, wrong-type, and non-reusable direct references are rejected;
+  a component that becomes unavailable after local selection causes the create to fail without a
+  partial draft; a valid persisted draft passes dependency validation immediately.
+implementation_decision: |
+  Create and update revalidate direct dependency DIDs inside their existing transaction and read
+  referenced template state with FOR SHARE so concurrent lifecycle changes cannot invalidate the
+  check before commit. Embedded historical snapshots are immutable evidence and are not walked
+  again as additional direct references.
 
 ### DCS-FR-TR-27 - Contract Type Classification
 id: DCS-FR-TR-27
@@ -1973,13 +2022,22 @@ evidence.
 id: DCS-IR-TR-01
 area: Interface Requirements
 implementation_status: Done
-interpretation_status: Unchanged
+interpretation_status: Clarified New-Draft Component Selection
 source_requirement: |
   Template Builder MUST allow Template Creator to create new contract templates and update
   existing ones.
 effective_requirement: |
-  Template Builder MUST allow Template Creator to create new contract templates and update
-  existing ones.
+  Template Builder MUST allow Template Creators to create and update contract templates and to
+  select reusable REGISTERED or PUBLISHED components while the new parent is still an unpersisted
+  draft.
+effective_acceptance_criteria: |
+  The new-template flow loads the selected component's authoritative snapshot, displays it in the
+  hierarchy, persists it with the draft, and shows an actionable dependency error while keeping
+  the user on the create route if server-side revalidation fails.
+implementation_decision: |
+  Keep the draft store as the single source of truth. Selection loads a full component through
+  the existing template service; create submits the resulting snapshot and reloads the committed
+  read model after success.
 
 ### DCS-IR-TR-02
 id: DCS-IR-TR-02
@@ -2076,18 +2134,24 @@ effective_requirement: |
 ### DCS-IR-CWE-02
 id: DCS-IR-CWE-02
 area: Interface Requirements
-implementation_status: Done
-interpretation_status: Unchanged
+implementation_status: Ongoing
+interpretation_status: Clarification Required
 source_requirement: |
   Contract Creation UI MUST enable population of contract data, including parties, assets,
   policies, and evidence.
 effective_requirement: |
   Contract Creation UI MUST enable population of contract data, including parties, assets,
   policies, and evidence.
+interpretation_note: |
+  The requirement names four data categories but does not define their authoritative UI or data
+  model, cardinalities, validation rules, or how typed evidence is attached. These product
+  semantics and acceptance criteria require clarification before a conforming creation UI can be
+  implemented and verified.
 implementation_decision: |
-  The existing contract editor populates parties, assets, policies, and typed evidence from the
-  product model. Browser evidence is provided by the @DCS-IR-CWE-02 scenario in
-  features/24_ui_traceability/contract_workflow_ui.feature.
+  Ad-hoc text inputs and invented JSON-LD mappings for the four categories were removed. No
+  replacement UI will be introduced until an authoritative product model and acceptance criteria
+  exist. Create-from-template and submit remain browser-proven under DCS-IR-CWE-01; they are not
+  evidence for this requirement. DCS-IR-CWE-02 remains an explicit ui-gap.
 
 ### DCS-IR-CWE-03 - Contract Negotiation UI
 id: DCS-IR-CWE-03
@@ -3631,17 +3695,24 @@ id: UC-02-01
 area: Use Cases
 implementation_status: Done
 category: Sub-Use-Cases
-interpretation_status: Unchanged
+interpretation_status: Clarified Component Snapshot Creation
 source_requirement: |
   Create reusable template by Template Manager/Approver.
 source_acceptance_criteria: |
   Show a template is created with required metadata/provenance; repository returns a template
   ID/version; entry appears in search; action is auditlogged.
 effective_requirement: |
-  Create reusable template by Template Manager/Approver.
+  Create a reusable template, including a contract-template draft assembled from reusable
+  component snapshots, through the authorized template workflow.
 effective_acceptance_criteria: |
   Show a template is created with required metadata/provenance; repository returns a template
-  ID/version; entry appears in search; action is auditlogged.
+  ID/version; entry appears in search; action is auditlogged. When a component is selected, its
+  complete authoritative snapshot persists with the draft and the create remains atomic if the
+  dependency becomes invalid before submission.
+implementation_decision: |
+  Persist component snapshots in the template's existing machine-readable document and apply the
+  same authoritative dependency validation to create and update; no separate draft dependency
+  record or partial-save path is introduced.
 
 ### UC-02-02 - Search & Retrieve Templates
 id: UC-02-02

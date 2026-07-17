@@ -64,11 +64,17 @@ class TemplateService:
         }
 
     @staticmethod
-    def create_fresh_template(context, name="Standard Template", description="BDD auto-created template", title="BDD Standard NDA") -> tuple:
+    def create_fresh_template(
+        context,
+        name="Standard Template",
+        description="BDD auto-created template",
+        title="BDD Standard NDA",
+        template_type=None,
+    ) -> tuple:
         """Create a Draft template as Template Creator; return (did, updated_at)."""
         headers = AuthService.get_headers_for_roles(["Template Creator"])
         payload = {
-            "template_type": TemplateService.template_type_for_category("legal"),
+            "template_type": template_type or TemplateService.template_type_for_category("legal"),
             "name": name,
             "description": description,
             "template_data": TemplateService.canonical_document_data(title),

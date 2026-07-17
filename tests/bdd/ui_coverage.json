@@ -64,7 +64,7 @@
     {"id":"DCS-FR-TR-28","disposition":"ui-covered","scenario_ref":"template-management"},
 
     {"id":"DCS-IR-CWE-01","disposition":"ui-covered","scenario_ref":"contract-create"},
-    {"id":"DCS-IR-CWE-02","disposition":"ui-covered","scenario_ref":"contract-create"},
+    {"id":"DCS-IR-CWE-02","disposition":"ui-gap","note":"The requirement does not define an authoritative UI model, cardinalities, or validation semantics for parties, assets, policies, and evidence. The removed ad-hoc text inputs do not qualify as product evidence."},
     {"id":"DCS-IR-CWE-03","disposition":"ui-covered","scenario_ref":"contract-negotiation"},
     {"id":"DCS-IR-CWE-04","disposition":"ui-covered","scenario_ref":"contract-negotiation"},
     {"id":"DCS-IR-CWE-05","disposition":"ui-covered","scenario_ref":"contract-governance"},

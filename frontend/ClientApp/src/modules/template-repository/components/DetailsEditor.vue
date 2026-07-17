@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { useDcsDraftStore } from '@template-repository/store/dcsDraftStore'
 import { useTemplateEditorUiStore } from '@template-repository/store/templateEditorUiStore'
-import axios from 'axios'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref } from 'vue'
 import { TemplateType } from '@/modules/template-repository/models/contract-template'
 import { contractTemplateService } from '@/services/contract-template-service'
 import { useContractTemplatesStore } from '@/stores/contract-templates-store'
 import { TemplateState } from '@/types/contract-template-state'
+import { extractErrorMessage } from '@/utils/error-message'
 import { useTemplatePermissions } from '../composables/useTemplatePermissions'
+import { selectComponentSnapshot } from '../utils/component-snapshot-selection'
+import { isReusableComponentTemplate } from '../utils/is-reusable-component-template'
 
 interface ComponentTemplateKey {
   did: string
@@ -23,6 +25,8 @@ const { templateType, blocks, subTemplateSnapshots, state, version } = storeToRe
 const { contractTemplates: allTemplates } = storeToRefs(templatesStore)
 
 const { isManager } = useTemplatePermissions()
+
+const availableComponentTemplates = computed(() => allTemplates.value.filter(isReusableComponentTemplate))
 
 onMounted(templatesStore.loadTemplates)
 
@@ -63,26 +67,26 @@ const getComponentTemplateName = (item: ComponentTemplateKey) =>
   item.did
 
 const addComponentTemplate = async () => {
-  if (!store.did || dependencySaving.value) return
+  const reference = dependencyReference.value.trim()
+  if (!reference || dependencySaving.value) return
   dependencyError.value = null
   dependencySaveResult.value = null
   dependencySaving.value = true
   try {
-    const snapshot = await contractTemplateService.validateDependency({
-      template_did: store.did,
-      reference_did: dependencyReference.value,
-    })
+    const snapshot = store.did
+      ? await contractTemplateService.validateDependency({
+          template_did: store.did,
+          reference_did: reference,
+        })
+      : await selectComponentSnapshot(reference, availableComponentTemplates.value, (did) =>
+          contractTemplateService.retrieveById({ did }),
+        )
     store.addSubTemplateSnapshot(snapshot)
     dependencySaveResult.value = 'saved'
     dependencyReference.value = ''
   } catch (error: unknown) {
     dependencySaveResult.value = 'blocked'
-    if (axios.isAxiosError(error)) {
-      const payload = error.response?.data as { message?: string; name?: string } | undefined
-      dependencyError.value = payload?.message ?? payload?.name ?? 'Dependency validation failed'
-    } else {
-      dependencyError.value = error instanceof Error ? error.message : 'Dependency validation failed'
-    }
+    dependencyError.value = extractErrorMessage(error, 'Dependency validation failed')
   } finally {
     dependencySaving.value = false
   }
@@ -212,22 +216,21 @@ const removeComponentTemplate = (item: ComponentTemplateKey) => {
         />
         <datalist id="template-component-reference-options">
           <option
-            v-for="template in allTemplates.filter(
-              (item) =>
-                item.template_type === TemplateType.component &&
-                (item.state === TemplateState.approved || item.state === TemplateState.published),
-            )"
+            v-for="template in availableComponentTemplates"
             :key="template.did"
+            data-test-id="template-component-option"
+            :data-test-key="template.did"
             :value="template.did"
+            :label="`${template.name ?? 'Unnamed component'} — ${template.did}`"
           >
-            {{ template.name }}
+            {{ template.name ?? 'Unnamed component' }} — {{ template.did }}
           </option>
         </datalist>
         <button
           type="button"
           class="btn mt-2 btn-sm btn-primary"
           data-test-id="template-component-save"
-          :disabled="!store.did || dependencySaving"
+          :disabled="!dependencyReference.trim() || dependencySaving"
           @click="addComponentTemplate"
         >
           {{ dependencySaving ? 'Validating…' : 'Save dependency' }}

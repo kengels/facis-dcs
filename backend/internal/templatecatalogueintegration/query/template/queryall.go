@@ -50,6 +50,7 @@ RETURN {
   description: ct.description,
   version: ct.version,
   state: ct.state,
+  templateType: ct.templateType,
   template_uuid: ct.templateUuid
 } AS n
 SKIP %d
@@ -151,9 +152,10 @@ func mapCatalogueItem(ct map[string]interface{}) *templatecatalogueintegration.T
 	}
 
 	return &templatecatalogueintegration.TemplateCatalogueItem{
-		Did:         did,
-		Version:     ptr.Ref(ptr.IntFromMap(ct, "version")),
-		Name:        ptr.Ref(ptr.StringFromMap(ct, "name")),
-		Description: ptr.Ref(ptr.StringFromMap(ct, "description")),
+		Did:          did,
+		Version:      ptr.Ref(ptr.IntFromMap(ct, "version")),
+		Name:         ptr.Ref(ptr.StringFromMap(ct, "name")),
+		Description:  ptr.Ref(ptr.StringFromMap(ct, "description")),
+		TemplateType: ptr.Ref(ptr.StringFromMap(ct, "templateType")),
 	}
 }

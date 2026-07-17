@@ -12,6 +12,7 @@
     "dev-dcs2": "vite --mode dev2",
     "build": "vue-tsc -b && vite build",
     "build:docker": "vite build",
+    "test:unit": "node --test --experimental-strip-types tests/unit/*.test.ts",
     "preview": "vite preview",
     "lint": "eslint ./src *.ts",
     "lint:fix": "eslint ./src *.ts --fix",

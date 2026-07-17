@@ -60,12 +60,6 @@ const selectedTemplate = computed<PartialContractTemplate | null>(
 )
 const verificationResult: Ref<VerificationResult | null> = ref(null)
 const selectedParentContractDid = ref<string | null>(null)
-const initialName = ref('')
-const initialParty = ref('')
-const initialAsset = ref('')
-const initialPolicy = ref('')
-const initialEvidence = ref('')
-const createdDraft = ref<Contract | null>(null)
 
 const contract: Ref<Contract | null> = ref(null)
 
@@ -153,31 +147,25 @@ function verifySemanticValues(): boolean {
   return false
 }
 
-const createPopulatedDraft = async () => {
+const createDraft = async () => {
   if (!selectedTemplate.value || isSubmitting.value) return
   isSubmitting.value = true
   try {
     const created = await contractWorkflowService.create({ template_did: selectedTemplate.value.did })
-    const fresh = await contractWorkflowService.retrieveById({ did: created.did })
-    if (!fresh?.contract_data) throw new Error('Could not load created contract draft')
-    const contractData: ContractData = {
-      ...fresh.contract_data,
-      ...(selectedParentContractDid.value ? { 'dcs:parentContract': { '@id': selectedParentContractDid.value } } : {}),
-      ...(initialParty.value.trim() ? { 'dcs:parties': [{ '@id': initialParty.value.trim() }] } : {}),
-      ...(initialAsset.value.trim() ? { 'dcs:assets': [{ '@id': initialAsset.value.trim() }] } : {}),
-      ...(initialPolicy.value.trim() ? { 'dcs:policyTypes': [{ '@id': initialPolicy.value.trim() }] } : {}),
-      ...(initialEvidence.value.trim()
-        ? { 'dcs:evidence': [{ '@id': initialEvidence.value.trim(), '@type': 'dcs:Evidence' as const }] }
-        : {}),
+    if (selectedParentContractDid.value) {
+      const fresh = await contractWorkflowService.retrieveById({ did: created.did })
+      if (!fresh?.contract_data) throw new Error('Could not load created contract draft')
+      await contractWorkflowService.update({
+        did: fresh.did,
+        updated_at: fresh.updated_at,
+        contract_data: {
+          ...fresh.contract_data,
+          'dcs:parentContract': { '@id': selectedParentContractDid.value },
+        },
+      })
     }
-    await contractWorkflowService.update({
-      did: fresh.did,
-      updated_at: fresh.updated_at,
-      name: initialName.value.trim() || undefined,
-      contract_data: contractData,
-    })
-    createdDraft.value = await contractWorkflowService.retrieveById({ did: fresh.did })
-    if (!createdDraft.value) throw new Error('Could not reload persisted contract draft')
+    did.value = created.did
+    errorStore.add('Contract created.', 'info')
   } catch (error) {
     console.error('Contract draft creation failed', error)
   } finally {
@@ -351,15 +339,6 @@ onBeforeRouteLeave(() => {
 
 <template>
   <div class="flex h-full flex-col">
-    <RouterLink
-      v-if="createdDraft"
-      data-test-id="contract-save-result"
-      :data-test-key="createdDraft.did"
-      :to="{ name: ROUTES.CONTRACTS.VIEW, params: { did: createdDraft.did } }"
-      class="mx-6 mt-4 alert alert-success"
-    >
-      Draft saved · {{ createdDraft.did }}
-    </RouterLink>
     <div v-if="!isEditMode" class="flex flex-1 flex-col">
       <div v-if="!selectedTemplate" class="flex flex-1 items-center justify-center px-6 py-20">
         <select
@@ -379,38 +358,6 @@ onBeforeRouteLeave(() => {
       </div>
       <ViewContractTemplateView v-else :did="selectedTemplate.did" :embedded="true">
         <template #before-tabs>
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <input
-              v-model="initialName"
-              data-test-id="contract-create-name"
-              class="input-bordered input"
-              placeholder="Contract name"
-            />
-            <input
-              v-model="initialParty"
-              data-test-id="contract-create-party"
-              class="input-bordered input"
-              placeholder="Party DID"
-            />
-            <input
-              v-model="initialAsset"
-              data-test-id="contract-create-asset"
-              class="input-bordered input"
-              placeholder="Asset reference"
-            />
-            <input
-              v-model="initialPolicy"
-              data-test-id="contract-create-policy"
-              class="input-bordered input"
-              placeholder="Policy type"
-            />
-            <input
-              v-model="initialEvidence"
-              data-test-id="contract-create-evidence"
-              class="input-bordered input"
-              placeholder="Evidence reference"
-            />
-          </div>
           <div class="flex items-end gap-4">
             <div class="flex-1">
               <p class="mb-1 text-xs font-semibold text-base-content/60">Template</p>
@@ -427,7 +374,11 @@ onBeforeRouteLeave(() => {
             </div>
             <div v-if="draftContracts.length > 0" class="flex-1">
               <p class="mb-1 text-xs font-semibold text-base-content/60">Add to existing contract (optional)</p>
-              <select v-model="selectedParentContractDid" class="select w-full select-sm">
+              <select
+                v-model="selectedParentContractDid"
+                data-test-id="contract-create-parent"
+                class="select w-full select-sm"
+              >
                 <option :value="null">— none —</option>
                 <option v-for="c in draftContracts" :key="c.did" :value="c.did">
                   {{ c.name ?? c.did }}
@@ -535,7 +486,7 @@ onBeforeRouteLeave(() => {
           data-test-id="contract-create-save-draft"
           :disabled="isSubmitting || !canSubmit"
           class="btn flex-1 btn-primary"
-          @click="createPopulatedDraft"
+          @click="createDraft"
         >
           Save draft
         </button>

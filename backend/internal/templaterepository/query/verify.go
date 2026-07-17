@@ -16,8 +16,8 @@ import (
 	"digital-contracting-service/internal/base/datatype/componenttype"
 	"digital-contracting-service/internal/base/datatype/userrole"
 	"digital-contracting-service/internal/base/event"
-	"digital-contracting-service/internal/fcasset"
 	fcclient "digital-contracting-service/internal/templatecatalogueintegration/client"
+	"digital-contracting-service/internal/templaterepository/catalogueasset"
 	"digital-contracting-service/internal/templaterepository/datatype/reviewtaskstate"
 	"digital-contracting-service/internal/templaterepository/db"
 	templateevents "digital-contracting-service/internal/templaterepository/event"
@@ -186,24 +186,5 @@ func buildCatalogueVerificationPayload(
 	processData *db.ContractTemplateProcessData,
 	fullTemplate *db.ContractTemplate,
 ) (map[string]any, error) {
-	name := ""
-	description := ""
-	if fullTemplate.Name != nil {
-		name = *fullTemplate.Name
-	}
-	if fullTemplate.Description != nil {
-		description = *fullTemplate.Description
-	}
-
-	return fcasset.BuildPayload(fcasset.BuildInput{
-		Issuer:    issuer,
-		ValidFrom: fullTemplate.UpdatedAt,
-		Subject: fcasset.CatalogueSubjectFromRepository(
-			did,
-			processData.Version,
-			processData.State,
-			name,
-			description,
-		),
-	})
+	return catalogueasset.BuildTemplatePayload(did, issuer, processData, fullTemplate)
 }

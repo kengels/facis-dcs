@@ -332,6 +332,13 @@ def open_route(context, route):
     _goto(_page(context), f"{_ui_base(context)}{route}")
 
 
+@when('I navigate using remembered key "{alias}" to UI route "{route}"')
+def open_route_with_remembered_key(context, alias, route):
+    keys = getattr(context, "ui_test_keys", {})
+    assert alias in keys, f"No remembered UI business key named {alias!r}"
+    open_route(context, f"{route.rstrip('/')}/{keys[alias]}")
+
+
 @when('I open the edit UI for template "{name}"')
 def open_template_edit(context, name):
     open_route(context, f"/templates/edit/{_template_did(context, name)}")
@@ -584,6 +591,65 @@ def template_key_contains(context, test_id, name, expected):
         _element(context, test_id, _template_did(context, name)),
         expected,
         timeout=timeout,
+    )
+
+
+@then('the component picker shows template "{name}" with its name and DID')
+def component_picker_shows_name_and_did(context, name):
+    from playwright.sync_api import expect
+
+    did = _template_did(context, name)
+    picker = _element(context, "template-component-reference")
+    option = _element(context, "template-component-option", did)
+    expect(picker).to_be_visible(timeout=_UI_EXPECT_TIMEOUT_MS)
+    expect(picker).to_have_attribute(
+        "list",
+        "template-component-reference-options",
+        timeout=_UI_EXPECT_TIMEOUT_MS,
+    )
+    expect(option).to_have_count(1)
+    expect(option).to_contain_text(name, timeout=_UI_EXPECT_TIMEOUT_MS)
+    expect(option).to_have_attribute("value", did, timeout=_UI_EXPECT_TIMEOUT_MS)
+
+
+@then(
+    'persisted template with remembered key "{alias}" contains a complete snapshot of component "{name}"'
+)
+def persisted_template_contains_complete_component_snapshot(context, alias, name):
+    keys = getattr(context, "ui_test_keys", {})
+    assert alias in keys, f"No remembered UI business key named {alias!r}"
+    creator_headers = AuthService.get_headers_for_roles(["Template Creator"])
+    persisted = TemplateService.fetch_template(context, keys[alias], headers=creator_headers)
+    metadata = (persisted.get("template_data") or {}).get("dcs:metadata") or {}
+    snapshots = metadata.get("dcs:subTemplates") or []
+    component_did = _template_did(context, name)
+    source_component = TemplateService.fetch_template(
+        context,
+        component_did,
+        headers=creator_headers,
+    )
+    snapshot = next(
+        (
+            item
+            for item in snapshots
+            if isinstance(item, dict) and item.get("@id") == component_did
+        ),
+        None,
+    )
+    assert snapshot is not None, (
+        f"Persisted template {keys[alias]!r} has no snapshot for component {component_did!r}: "
+        f"{snapshots!r}"
+    )
+    assert snapshot.get("@id") == source_component.get("did"), (
+        f"Component snapshot DID differs from authoritative source: {snapshot!r}"
+    )
+    assert snapshot.get("dcs:version") == source_component.get("version"), (
+        f"Component snapshot version differs from authoritative source: "
+        f"snapshot={snapshot!r}, source={source_component!r}"
+    )
+    assert snapshot.get("dcs:template") == source_component.get("template_data"), (
+        f"Component snapshot template_data differs from authoritative source: "
+        f"snapshot={snapshot!r}, source={source_component!r}"
     )
 
 

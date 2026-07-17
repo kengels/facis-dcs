@@ -61,6 +61,7 @@ const originalContract = ref(Object.assign({}, contract.value))
           v-if="!inserted?.name"
           v-model="contract.name"
           data-test-id="contract-create-name"
+          :data-test-key="contract.did"
           class="input-bordered input w-full"
           :class="{ 'border-2 input-primary': !!inserted && originalContract.name !== contract.name }"
           type="text"
