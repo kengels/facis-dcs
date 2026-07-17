@@ -15,6 +15,7 @@ cleanup() {
 
 trap cleanup EXIT
 
+: "${VENV_PATH:?VENV_PATH is required}"
 : "${FEATURES_PATH:?FEATURES_PATH is required}"
 : "${KUBECTL_BIN:?KUBECTL_BIN is required}"
 : "${K8S_NAMESPACE:?K8S_NAMESPACE is required}"
@@ -30,9 +31,6 @@ trap cleanup EXIT
 
 BDD_PUBLIC_ORIGIN="${BDD_PUBLIC_ORIGIN:-http://localhost:18080}"
 export BDD_PUBLIC_ORIGIN
-export BDD_DCS_UI_URL="${BDD_DCS_UI_URL:-${BDD_PUBLIC_ORIGIN}/digital-contracting-service/ui}"
-export BDD_UI_REPORT_DIR="${BDD_UI_REPORT_DIR:-$PWD/.reports/ui}"
-export BDD_CREDENTIAL_STATUSLIST_SERVICE_URL="${BDD_CREDENTIAL_STATUSLIST_SERVICE_URL:-http://dcs-statuslist-service:8080}"
 export STATUSLIST_SERVICE_URL="${STATUSLIST_SERVICE_URL:-${BDD_PUBLIC_ORIGIN}/statuslist}"
 
 # BDD_DCS_BASE_URL_A / _B: the two-instance (@two-instance) peer-trust
@@ -79,7 +77,7 @@ IPFS_POD="$("${KUBECTL_BIN}" -n "${K8S_NAMESPACE}" get pod \
 # reliable failure.
 export BDD_IPFS_EXEC="${KUBECTL_BIN} -n ${K8S_NAMESPACE} exec -i ${IPFS_POD} --"
 
-mkdir -p .tmp .reports/junit .reports/ui
+mkdir -p .tmp .reports/junit
 REPORTS_JUNIT_DIR="$PWD/.reports/junit"
 
 # Emits `--resolve <host>:<port>:127.0.0.1` for a URL's host[:port], so
@@ -121,7 +119,9 @@ verify_host_ingress() {
 }
 
 wait_for_dcs_http() {
-  local deadline=$(( $(date +%s) + 120 ))
+  # Generous: on a cold cluster the backend blocks its HTTP server on the
+  # Federated Catalogue schema sync, and FC's own first boot takes minutes.
+  local deadline=$(( $(date +%s) + 900 ))
   local http_code
   until http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$DCS_HEALTH_URL" \
       -H 'Content-Type: application/json' -d '{}' 2>/dev/null) \
@@ -150,6 +150,43 @@ if ! verify_host_ingress; then
 fi
 wait_for_dcs_http
 echo "DCS is reachable at $DCS_HEALTH_URL"
+
+# The Federated Catalogue's /verification endpoint needs Neo4j and its
+# schema cache warm before it answers within the DCS client timeout;
+# template registration flows (features/02, template_archive) fail with
+# gateway timeouts when the suite starts against a cold FC. Warm it with
+# real verification requests through a temporary port-forward until one
+# completes, however it completes.
+wait_for_fc_verification() {
+  local fc_deploy="${HELM_RELEASE}-federated-catalogue"
+  if ! "$KUBECTL_BIN" -n "$K8S_NAMESPACE" get "deployment/$fc_deploy" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Warming the Federated Catalogue verification endpoint ($fc_deploy)"
+  "$KUBECTL_BIN" -n "$K8S_NAMESPACE" wait --for=condition=available --timeout=300s "deployment/$fc_deploy"
+  "$KUBECTL_BIN" -n "$K8S_NAMESPACE" port-forward "deployment/$fc_deploy" 18581:8081 >/dev/null 2>&1 &
+  local pf_pid=$!
+  local deadline=$(( $(date +%s) + 300 ))
+  local warmed=1
+  sleep 2
+  until curl -s -o /dev/null --max-time 8 -X POST \
+      "http://localhost:18581/verification?verifySchema=true&verifySemantics=true&verifySignatures=false&verifyVCSignature=false&verifyVPSignature=false" \
+      -H 'Content-Type: application/json' -d '{}' 2>/dev/null; do
+    if [ "$(date +%s)" -gt "$deadline" ]; then
+      echo "Timed out warming the Federated Catalogue verification endpoint"
+      warmed=0
+      break
+    fi
+    sleep 5
+  done
+  kill "$pf_pid" >/dev/null 2>&1 || true
+  if [ "$warmed" -eq 1 ]; then
+    echo "Federated Catalogue verification endpoint is responding"
+  else
+    return 1
+  fi
+}
+wait_for_fc_verification
 
 # Instance B (dcs2, features/17_peer_trust @two-instance): only checked when
 # the caller tells us it exists (DCS_DEPLOYMENT_B set AND actually present in
@@ -184,6 +221,15 @@ else
   echo "readiness was NOT verified. @two-instance BDD scenarios will fail if they run. Deploy it with" >&2
   echo "'make -C tests/bdd kind_deploy_b' (or kind_up, which now includes it) if you need instance B." >&2
 fi
+
+# The harness owns these loopback ports. A survivor forward from an earlier
+# run — possibly against a DIFFERENT cluster/kubeconfig — binds first, the
+# nc readiness check below then passes against the squatter, and every
+# DB/ORCE test seam silently talks to the wrong stack.
+for harness_port in 5432 18991 18880; do
+  fuser -k -n tcp "$harness_port" >/dev/null 2>&1 || true
+done
+sleep 1
 
 echo "Starting port-forward for PostgreSQL"
 "$KUBECTL_BIN" -n "$K8S_NAMESPACE" port-forward "svc/dcs-postgresql" 5432:5432 > .tmp/port-forward-db.log 2>&1 &
@@ -230,16 +276,29 @@ ORCE_SERVICE="${HELM_RELEASE}-orce"
 ORCE_LOCAL_FORWARD_PORT="${ORCE_LOCAL_FORWARD_PORT:-18880}"
 echo "Waiting for ORCE deployment ($ORCE_DEPLOYMENT) to be available"
 "$KUBECTL_BIN" -n "$K8S_NAMESPACE" wait --for=condition=available --timeout=180s "deployment/$ORCE_DEPLOYMENT"
-ORCE_POD="$("$KUBECTL_BIN" -n "$K8S_NAMESPACE" get pod \
-  -l "app.kubernetes.io/name=orce,app.kubernetes.io/instance=${HELM_RELEASE}" \
-  --field-selector=status.phase=Running \
-  -o jsonpath='{.items[0].metadata.name}')"
-ORCE_TOKEN="$("$KUBECTL_BIN" -n "$K8S_NAMESPACE" exec "$ORCE_POD" -- \
-  printenv ORCE_ARCHIVE_AUDIT_LOG_BEARER_TOKEN)"
-if [[ -z "$ORCE_TOKEN" ]]; then
-  echo "ORCE archive audit token is not configured in pod $ORCE_POD" >&2
-  exit 1
-fi
+# During a rollout the terminating pod still reports phase Running while its
+# containers are already gone — pick the newest running pod and retry the
+# exec until it answers.
+ORCE_TOKEN=""
+deadline=$(( $(date +%s) + 120 ))
+while [[ -z "$ORCE_TOKEN" ]]; do
+  ORCE_POD="$("$KUBECTL_BIN" -n "$K8S_NAMESPACE" get pod \
+    -l "app.kubernetes.io/name=orce,app.kubernetes.io/instance=${HELM_RELEASE}" \
+    --field-selector=status.phase=Running \
+    --sort-by=.metadata.creationTimestamp \
+    -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null || true)"
+  if [[ -n "$ORCE_POD" ]]; then
+    ORCE_TOKEN="$("$KUBECTL_BIN" -n "$K8S_NAMESPACE" exec "$ORCE_POD" -c orce -- \
+      printenv ORCE_ARCHIVE_AUDIT_LOG_BEARER_TOKEN 2>/dev/null || true)"
+  fi
+  if [[ -z "$ORCE_TOKEN" ]]; then
+    if [ "$(date +%s)" -gt "$deadline" ]; then
+      echo "ORCE archive audit token is not configured in pod ${ORCE_POD:-<none>}" >&2
+      exit 1
+    fi
+    sleep 3
+  fi
+done
 
 echo "Starting port-forward for ORCE service ($ORCE_SERVICE)"
 KUBECTL_BIN="$KUBECTL_BIN" K8S_NAMESPACE="$K8S_NAMESPACE" \
@@ -296,14 +355,24 @@ until orce_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BDD_ORCE_TARG
 done
 echo "ORCE contract-target flow is reachable (HTTP $orce_code); BDD_ORCE_TARGET_URL=$BDD_ORCE_TARGET_URL"
 
+source "$VENV_PATH/bin/activate"
 export BDD_DCS_BASE_URL
+
+echo "Checking statuslist for BDD at $STATUSLIST_SERVICE_URL"
+python "$PWD/scripts/ensure_statuslist_for_bdd.py"
 
 export DATABASE_URL="host=localhost port=5432 user=dcs password=dcs dbname=dcs sslmode=disable"
 
-EXTRA_ARGS=()
+# Canonical bdd-executor integration requires the package in the active environment.
+python -c 'import eu.xfsc.bdd.core' >/dev/null
+
+# Isolated-stack features (clean-DB assumptions, component restarts) run in
+# their dedicated targets, not the shared full-suite stack. Callers that DO
+# provide the isolation (run_bdd_audit_kind_once) override ARG_BDD_TAGS.
+EXTRA_ARGS=(${ARG_BDD_TAGS---tags=-isolated_stack})
 if [[ -n "${ARG_BDD:-}" ]]; then
   # shellcheck disable=SC2206
-  EXTRA_ARGS=(${ARG_BDD})
+  EXTRA_ARGS+=(${ARG_BDD})
 fi
 
 JUNIT_ARGS=(--junit --junit-directory .reports/junit)
@@ -314,62 +383,7 @@ fi
 
 echo "Running BDD suite via bdd-executor environment"
 cd "$PROJECT_ROOT"
-if [[ -n "${BDD_PLAYWRIGHT_IMAGE:-}" ]]; then
-  REPORTS_JUNIT_DIR="$BDD_UI_REPORT_DIR/junit"
-  KUBECONFIG_PATH="${KUBECONFIG:-$HOME/.kube/config}"
-  if [[ ! -f "$KUBECONFIG_PATH" ]]; then
-    echo "Kubeconfig not found at $KUBECONFIG_PATH" >&2
-    exit 1
-  fi
-
-  CONTAINER_ENV_ARGS=()
-  while IFS='=' read -r name _; do
-    CONTAINER_ENV_ARGS+=(--env "$name")
-  done < <(env | sed -n 's/^\(BDD_[A-Z0-9_]*\)=.*/\1=/p')
-
-  : "${KIND_CLUSTER_NAME:?KIND_CLUSTER_NAME is required for Playwright runs}"
-  KIND_CONTROL_PLANE="${KIND_CLUSTER_NAME}-control-plane"
-  TRAEFIK_NODE_PORT=$("$KUBECTL_BIN" -n kube-system get service traefik \
-    -o jsonpath='{.spec.ports[?(@.port==18080)].nodePort}')
-  if [[ -z "$TRAEFIK_NODE_PORT" ]]; then
-    echo "Traefik service has no NodePort for BDD ingress port 18080" >&2
-    exit 1
-  fi
-
-  docker run --rm --network "${BDD_DOCKER_NETWORK:-kind}" --ipc host \
-    --add-host dcs-a.localhost:127.0.0.1 \
-    --add-host dcs-b.localhost:127.0.0.1 \
-    --user "$(id -u):$(id -g)" \
-    --env HOME=/tmp \
-    --env DATABASE_URL="host=localhost port=5432 user=dcs password=dcs dbname=dcs sslmode=disable" \
-    --env STATUSLIST_SERVICE_URL \
-    --env PROJECT_ROOT \
-    --env FEATURES_PATH \
-    --env ARG_BDD \
-    --env ARG_BDD_JUNIT \
-    --env KUBECONFIG=/tmp/kubeconfig \
-    --env K8S_NAMESPACE="$K8S_NAMESPACE" \
-    --env DCS_SERVICE="$DCS_SERVICE" \
-    --env LOCAL_FORWARD_PORT="$LOCAL_FORWARD_PORT" \
-    --env SERVICE_PORT="$SERVICE_PORT" \
-    --env ORCE_SERVICE="$ORCE_SERVICE" \
-    --env ORCE_LOCAL_FORWARD_PORT="$ORCE_LOCAL_FORWARD_PORT" \
-    --env BDD_KIND_CONTROL_PLANE="$KIND_CONTROL_PLANE" \
-    --env BDD_TRAEFIK_NODE_PORT="$TRAEFIK_NODE_PORT" \
-    "${CONTAINER_ENV_ARGS[@]}" \
-    --volume "$PROJECT_ROOT:$PROJECT_ROOT" \
-    --volume "$KUBECONFIG_PATH:/tmp/kubeconfig:ro" \
-    --workdir "$PROJECT_ROOT" \
-    "$BDD_PLAYWRIGHT_IMAGE" \
-    bash tests/bdd/scripts/run_playwright_container.sh
-else
-  : "${VENV_PATH:?VENV_PATH is required for non-UI BDD runs}"
-  source "$VENV_PATH/bin/activate"
-  echo "Checking statuslist for BDD at $STATUSLIST_SERVICE_URL"
-  python "$PWD/tests/bdd/scripts/ensure_statuslist_for_bdd.py"
-  python -c 'import eu.xfsc.bdd.core' >/dev/null
-  "$VENV_PATH/bin/coverage" run --append -m behave "${JUNIT_ARGS[@]}" "$FEATURES_PATH" "${EXTRA_ARGS[@]}"
-fi
+"$VENV_PATH/bin/coverage" run --append -m behave "${JUNIT_ARGS[@]}" "$FEATURES_PATH" "${EXTRA_ARGS[@]}"
 
 JUNIT_COUNT=$(find "$REPORTS_JUNIT_DIR" -name "*.xml" 2>/dev/null | wc -l || true)
 echo "Generated $JUNIT_COUNT junit XML files in $REPORTS_JUNIT_DIR/"

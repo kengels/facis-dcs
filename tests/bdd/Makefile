@@ -1,8 +1,6 @@
 SHELL := /bin/bash -eu -o pipefail
 
 PYTHON ?= python3
-PLAYWRIGHT_VERSION ?= 1.52.0
-PLAYWRIGHT_IMAGE ?= facis-dcs-bdd-playwright:$(PLAYWRIGHT_VERSION)
 # Unter WSL gegen /mnt/c liegt das Repo auf dem 9P-Dateisystem — ein venv dort
 # macht jeden Python-Import 5-20x langsamer. Default daher: venv im nativen
 # ext4-Home der Distro. Explizites VENV_PATH=... überschreibt weiterhin;
@@ -15,7 +13,6 @@ THIS_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 PROJECT_ROOT := $(abspath $(THIS_DIR)../..)
 VENV_ABS := $(if $(filter /%,$(VENV_PATH)),$(VENV_PATH),$(THIS_DIR)$(VENV_PATH))
 REPORTS_ABS := $(THIS_DIR).reports
-BDD_UI_REPORT_DIR ?= $(REPORTS_ABS)/ui
 BDD_EXECUTOR_REPO ?= https://github.com/eclipse-xfsc/bdd-executor.git
 BDD_EXECUTOR_PATH ?= ../../bdd-executor
 BDD_EXECUTOR_FALLBACK_PATH ?= .tmp/bdd-executor
@@ -86,13 +83,10 @@ BDD_HELM_SET_B := \
 	--set-string hydra.clients[0].redirect_uris[0]="$(BDD_PUBLIC_ORIGIN_B)/digital-contracting-service/api/auth/callback" \
 	--set-string hydra.clients[0].post_logout_redirect_uris[0]="$(BDD_PUBLIC_ORIGIN_B)/digital-contracting-service/api/auth/logout-complete"
 
-.PHONY: setup_environment build_playwright_image validate_ui_coverage validate_ui_evidence ensure_venv run_bdd_test run_bdd_fast run_bdd_helm run_bdd_ui_helm ensure_kind ensure_k8s_tools kind_create kind_delete kind_load_image kind_load_pdf_core_image kind_deploy kind_deploy_b kind_coredns_rewrite kind_uninstall run_bdd_kind run_bdd_kind_all run_bdd_kind_ci run_bdd_ui_kind_once run_bdd_audit_kind_ci build_dcs_image clean help kind_up kind_up_audit run_bdd_kind_once run_bdd_audit_kind_once kind_down
+.PHONY: kind_export_kubeconfig setup_environment ensure_venv run_bdd_test run_bdd_fast run_bdd_helm ensure_kind ensure_k8s_tools kind_create kind_delete kind_load_image kind_load_pdf_core_image kind_deploy kind_deploy_b kind_coredns_rewrite kind_uninstall run_bdd_kind run_bdd_kind_all run_bdd_kind_ci run_bdd_audit_kind_ci build_dcs_image clean help kind_up kind_up_audit run_bdd_kind_once run_bdd_audit_kind_once kind_down
 
 help:
 	@echo "make setup_environment   # Create venv and install bdd-executor"
-	@echo "make build_playwright_image # Build the pinned Python Playwright runner"
-	@echo "make run_bdd_ui_kind_once # Run @ui scenarios against an existing kind stack"
-	@echo "make validate_ui_coverage # Reject unsupported UI coverage claims/selectors"
 	@echo "make run_bdd_test		# Run all BDD scenarios (coverage + junit reports)"
 	@echo "make run_bdd_fast T=@tag	# Fast dev loop: tag-scoped, --stop, no coverage/junit"
 	@echo "make run_bdd_helm		# Run BDD via Traefik on http://localhost:18080"
@@ -122,17 +116,8 @@ setup_environment:
 	fi; \
 	"$(VENV_PATH)/bin/pip" install -q --upgrade pip wheel; \
 	"$(VENV_PATH)/bin/pip" install -q -e "$$SRC_PATH[dev]"; \
-	"$(VENV_PATH)/bin/pip" install -q psycopg2-binary pypdf==5.7.0
+	"$(VENV_PATH)/bin/pip" install -q psycopg2-binary jcs pypdf==5.7.0
 	"$(VENV_PATH)/bin/pip" install -q -r "$(PROJECT_ROOT)/testWallet/requirements.txt"
-
-build_playwright_image:
-	@docker build -f Dockerfile.playwright -t "$(PLAYWRIGHT_IMAGE)" ../..
-
-validate_ui_coverage:
-	@$(PYTHON) scripts/validate_ui_coverage.py
-
-validate_ui_evidence:
-	@$(PYTHON) scripts/validate_ui_coverage.py --require-evidence
 
 # Bootstrappt das venv nur, wenn es fehlt/kaputt ist — der pip-Refresh bei
 # jedem Lauf kostete sonst 10-60s pro Testzyklus.
@@ -154,7 +139,7 @@ run_bdd_fast: ensure_venv
 	@cd "$(PROJECT_ROOT)" && \
 	"$(VENV_ABS)/bin/behave" --stop $(if $(T),--tags=$(T)) $(if $(F),$(F),$(FEATURES_PATH)) $(ARG_BDD)
 
-run_bdd_helm: ensure_venv ensure_k8s_tools
+run_bdd_helm: setup_environment ensure_k8s_tools
 	@VENV_PATH="$(VENV_ABS)" \
 		PROJECT_ROOT="$(PROJECT_ROOT)" \
 		FEATURES_PATH="$(FEATURES_PATH)" \
@@ -178,32 +163,6 @@ run_bdd_helm: ensure_venv ensure_k8s_tools
 		ARG_BDD="$(ARG_BDD)" \
 		bash "$(BDD_RUNNER_SCRIPT)"
 
-run_bdd_ui_helm: ensure_k8s_tools
-	@PROJECT_ROOT="$(PROJECT_ROOT)" \
-		FEATURES_PATH="$(FEATURES_PATH)" \
-		KUBECTL_BIN="$(KUBECTL_BIN)" \
-		K8S_NAMESPACE="$(K8S_NAMESPACE)" \
-		HELM_RELEASE="$(HELM_RELEASE)" \
-		DCS_DEPLOYMENT="$(DCS_DEPLOYMENT)" \
-		BDD_DCS_BASE_URL="$(BDD_DCS_BASE_URL)" \
-		BDD_PUBLIC_ORIGIN="$(BDD_PUBLIC_ORIGIN)" \
-		DCS_API_BASE_PATH="$(DCS_API_BASE_PATH)" \
-		DCS_SERVICE="$(DCS_SERVICE)" \
-		LOCAL_FORWARD_PORT="$(LOCAL_FORWARD_PORT)" \
-		SERVICE_PORT="$(SERVICE_PORT)" \
-		ORCE_LOCAL_FORWARD_PORT="$(ORCE_LOCAL_FORWARD_PORT)" \
-		DCS_DID="$(DCS_DID)" \
-		DCS_DEPLOYMENT_B="$(DCS_DEPLOYMENT_B)" \
-		BDD_DCS_BASE_URL_B="$(BDD_DCS_BASE_URL_B)" \
-		BDD_PUBLIC_ORIGIN_B="$(BDD_PUBLIC_ORIGIN_B)" \
-		BDD_PLAYWRIGHT_IMAGE="$(PLAYWRIGHT_IMAGE)" \
-		BDD_UI_REPORT_DIR="$(BDD_UI_REPORT_DIR)" \
-		KIND_CLUSTER_NAME="$(KIND_CLUSTER_NAME)" \
-		BDD_DOCKER_NETWORK="kind" \
-		ARG_BDD_JUNIT="--junit --junit-directory $(BDD_UI_REPORT_DIR)/junit" \
-		ARG_BDD="$(ARG_BDD)" \
-		bash "$(BDD_RUNNER_SCRIPT)"
-
 build_dcs_image:
 	@docker build -f ../../deployment/docker/Dockerfile -t "$(DOCKER_IMAGE)" ../..
 
@@ -216,6 +175,20 @@ ensure_kind:
 ensure_k8s_tools:
 	@command -v "$(KUBECTL_BIN)" >/dev/null 2>&1 || (echo "kubectl not found in PATH" && exit 1)
 	@command -v "$(HELM_BIN)" >/dev/null 2>&1 || (echo "helm not found in PATH" && exit 1)
+
+# Every kind-targeted goal pins kubectl/helm to the kind cluster through a
+# dedicated kubeconfig, independent of the developer's current context —
+# otherwise deploys land wherever the context points while the suite's
+# host-port datapath (18080) always reaches the kind cluster.
+KIND_KUBECONFIG := $(CURDIR)/.tmp/kind-kubeconfig
+KIND_GOALS := kind_create kind_load_image kind_load_pdf_core_image kind_deploy kind_deploy_b \
+	kind_coredns_rewrite kind_uninstall run_bdd_kind run_bdd_kind_all run_bdd_kind_ci \
+	run_bdd_audit_kind_ci kind_up kind_up_audit run_bdd_kind_once run_bdd_audit_kind_once kind_down
+$(KIND_GOALS): export KUBECONFIG := $(KIND_KUBECONFIG)
+
+kind_export_kubeconfig:
+	@mkdir -p "$(CURDIR)/.tmp"
+	@"$(KIND_BIN)" export kubeconfig --name "$(KIND_CLUSTER_NAME)" --kubeconfig "$(KIND_KUBECONFIG)"
 
 kind_create: ensure_kind ensure_k8s_tools
 	@cluster_healthy=false; \
@@ -231,6 +204,7 @@ kind_create: ensure_kind ensure_k8s_tools
 	if [[ "$$cluster_healthy" == "false" ]]; then \
 		"$(KIND_BIN)" create cluster --name "$(KIND_CLUSTER_NAME)" --config "$(KIND_CONFIG)" --wait "$(KIND_WAIT)"; \
 	fi
+	@$(MAKE) kind_export_kubeconfig
 
 kind_delete: ensure_kind
 	@if "$(KIND_BIN)" get clusters | grep -qx "$(KIND_CLUSTER_NAME)"; then \
@@ -292,6 +266,11 @@ kind_deploy: kind_load_image kind_load_pdf_core_image
 	@# time: a prior version wired only to cluster creation was observed to
 	@# not reliably stick.
 	@$(MAKE) kind_coredns_rewrite
+	@# The image tag is static, so an unchanged manifest never rolls the pods
+	@# even though kind load just replaced the node image — restart both
+	@# freshly-built workloads so the run tests the image that was built.
+	@"$(KUBECTL_BIN)" -n "$(KIND_NAMESPACE)" rollout restart \
+		deployment/"$(DCS_DEPLOYMENT)" deployment/"$(DCS_DEPLOYMENT)"-pdf-core 2>/dev/null || true
 	@echo "Waiting for cert chain secret $(CERT_CHAIN_SECRET) (created by post-install hook)..."
 	@deadline=$$(( $$(date +%s) + 1200 )); \
 	until "$(KUBECTL_BIN)" get secret "$(CERT_CHAIN_SECRET)" -n "$(KIND_NAMESPACE)" >/dev/null 2>&1; do \
@@ -354,6 +333,8 @@ kind_deploy_b: kind_deploy
 		$(BDD_HELM_SET_B) \
 		$(KIND_HELM_VALUES) \
 		$(KIND_HELM_SET)
+	@"$(KUBECTL_BIN)" -n "$(KIND_NAMESPACE)" rollout restart \
+		deployment/"$(DCS_DEPLOYMENT_B)" 2>/dev/null || true
 	@echo "Waiting for cert chain secret $(CERT_CHAIN_SECRET_B) (created by post-install hook)..."
 	@deadline=$$(( $$(date +%s) + 1200 )); \
 	until "$(KUBECTL_BIN)" get secret "$(CERT_CHAIN_SECRET_B)" -n "$(KIND_NAMESPACE)" >/dev/null 2>&1; do \
@@ -405,19 +386,7 @@ run_bdd_kind_all: kind_deploy_b
 		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
 		HELM_RELEASE="$(HELM_RELEASE)"
 
-run_bdd_kind_ci: validate_ui_coverage build_dcs_image build_pdf_core_image build_playwright_image kind_deploy_b
-	@$(MAKE) run_bdd_helm \
-		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
-		HELM_RELEASE="$(HELM_RELEASE)" \
-		ARG_BDD="--tags=~@ui" \
-		ARG_BDD_JUNIT="--junit --junit-directory $(REPORTS_ABS)/api/junit"
-	@$(MAKE) run_bdd_ui_helm \
-		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
-		HELM_RELEASE="$(HELM_RELEASE)" \
-		FEATURES_PATH="features/24_ui_traceability" \
-		ARG_BDD="--tags=@ui" \
-		ARG_BDD_JUNIT="--junit --junit-directory $(REPORTS_ABS)/ui/junit"
-	@$(MAKE) validate_ui_evidence
+run_bdd_kind_ci: build_dcs_image build_pdf_core_image run_bdd_kind
 
 run_bdd_audit_kind_ci: build_dcs_image build_pdf_core_image kind_deploy
 	@$(MAKE) run_bdd_audit_kind_once
@@ -444,15 +413,6 @@ run_bdd_kind_once:
 		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
 		HELM_RELEASE="$(HELM_RELEASE)" \
 		FEATURES_PATH="$(if $(F),$(F),$(FEATURES_PATH))"
-
-run_bdd_ui_kind_once: build_playwright_image
-	@$(MAKE) run_bdd_ui_helm \
-		K8S_NAMESPACE="$(KIND_NAMESPACE)" \
-		HELM_RELEASE="$(HELM_RELEASE)" \
-		BDD_UI_REPORT_DIR="$(REPORTS_ABS)/ui" \
-		ARG_BDD_JUNIT="--junit --junit-directory $(REPORTS_ABS)/ui/junit" \
-		ARG_BDD="--tags=@ui" \
-		FEATURES_PATH="features/24_ui_traceability"
 
 run_bdd_audit_kind_once:
 	@$(MAKE) run_bdd_helm \

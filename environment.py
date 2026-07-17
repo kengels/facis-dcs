@@ -1,54 +1,14 @@
 """Behave environment hooks for DCS BDD tests."""
 
 import os
-import re
 import sys
 from pathlib import Path
 import psycopg2
 
+from steps.support import localhost_resolver
+
 
 SKIP_TAGS = {"skip", "skipped"}
-UI_TAG = "ui"
-
-
-def _has_tag(node, wanted):
-	tags = []
-	tags.extend(getattr(node, "effective_tags", ()) or ())
-	tags.extend(getattr(node, "tags", ()) or ())
-	feature = getattr(node, "feature", None)
-	if feature is not None:
-		tags.extend(getattr(feature, "tags", ()) or ())
-	return any(_normalize_tag(tag) == wanted for tag in tags)
-
-
-def _safe_artifact_name(name):
-	value = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(name)).strip("-.")
-	return value[:120] or "scenario"
-
-
-def _ensure_browser(context):
-	# Behave removes attributes written in before_scenario when it pops the
-	# scenario context layer. Keep the run-wide Playwright driver in private
-	# attributes, which bypass that scoped stack, so a failed outline example
-	# cannot orphan a live sync driver and start a second one inside its loop.
-	if getattr(context, "_ui_browser", None) is not None:
-		return
-	try:
-		from playwright.sync_api import sync_playwright
-	except ImportError as exc:
-		raise RuntimeError(
-			"@ui scenarios require the pinned browser runner; run "
-			"'make -C tests/bdd run_bdd_ui_kind_once'"
-		) from exc
-	context._ui_playwright = sync_playwright().start()
-	context._ui_browser = context._ui_playwright.chromium.launch(
-		headless=True,
-	)
-
-
-def _ui_scenario_failed(scenario):
-	status = getattr(scenario, "status", None)
-	return getattr(status, "name", str(status)).lower() == "failed"
 
 
 def _normalize_tag(tag):
@@ -106,7 +66,6 @@ def cleanup_database(context):
 def _cleanup_database(cursor):
 	cursor.execute("DELETE FROM access_attempts")
 	cursor.execute("DELETE FROM ip_lockouts")
-	cursor.execute("DELETE FROM pac_incidents")
 
 	cursor.execute("DELETE FROM contract_negotiation_task")
 	cursor.execute("DELETE FROM contract_approval_task")
@@ -129,49 +88,13 @@ def _cleanup_database(cursor):
 def before_scenario(context, scenario):
 	if _scenario_has_skip_tag(scenario):
 		scenario.skip('Skipped by scenario tag "@skip"')
-		return
 
 	if "clean_db" in scenario.tags:
 		cleanup_database(context)
 
-	if _has_tag(scenario, UI_TAG):
-		_ensure_browser(context)
-		artifact_dir = (
-			Path(os.getenv("BDD_UI_REPORT_DIR", "tests/bdd/.reports/ui"))
-			/ _safe_artifact_name(scenario.feature.name)
-			/ _safe_artifact_name(scenario.name)
-		)
-		artifact_dir.mkdir(parents=True, exist_ok=True)
-		context.ui_artifact_dir = artifact_dir
-		context.browser_context = context._ui_browser.new_context(
-			accept_downloads=True,
-			record_video_dir=str(artifact_dir / "video"),
-			viewport={"width": 1440, "height": 1000},
-		)
-		context.browser_context.tracing.start(screenshots=True, snapshots=True, sources=True)
-		context.page = context.browser_context.new_page()
-
-
-def after_scenario(context, scenario):
-	if not _has_tag(scenario, UI_TAG) or getattr(context, "browser_context", None) is None:
-		return
-
-	failed = _ui_scenario_failed(scenario)
-	artifact_dir = context.ui_artifact_dir
-	try:
-		if failed and getattr(context, "page", None) is not None:
-			context.page.screenshot(path=str(artifact_dir / "failure.png"), full_page=True)
-		if failed:
-			context.browser_context.tracing.stop(path=str(artifact_dir / "trace.zip"))
-		else:
-			context.browser_context.tracing.stop()
-	finally:
-		context.browser_context.close()
-		context.page = None
-		context.browser_context = None
-
 
 def before_all(context):
+	localhost_resolver.install()
 
 	steps_dir = Path(__file__).resolve().parent / "steps"
 	steps_dir_str = str(steps_dir)
@@ -194,10 +117,6 @@ def before_all(context):
 	# runners without being wrong.
 	context.http_timeout_seconds = float(os.getenv("BDD_HTTP_TIMEOUT_SECONDS", "60"))
 	context.aliases = {}
-	context._ui_playwright = None
-	context._ui_browser = None
-	context.browser_context = None
-	context.page = None
 
 	try:
 		context.db = psycopg2.connect(
@@ -210,8 +129,4 @@ def before_all(context):
 
 
 def after_all(context):
-	if getattr(context, "_ui_browser", None) is not None:
-		context._ui_browser.close()
-	if getattr(context, "_ui_playwright", None) is not None:
-		context._ui_playwright.stop()
-	context.db.close()
+    context.db.close()

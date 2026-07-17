@@ -14,28 +14,18 @@ spec:
         app.kubernetes.io/name: orce
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
-      {{- if or .Values.persistence.enabled .Values.localTSA.enabled }}
+      {{- if or .Values.localTSA.enabled .Values.persistence.enabled }}
       initContainers:
         {{- if .Values.persistence.enabled }}
-        # Mounting an empty PVC at /data hides the settings and Node modules
-        # shipped by the ORCE image. Seed the volume once before Node-RED starts
-        # while keeping runtime data (including the archive audit chain) intact
-        # across subsequent pod restarts.
-        - name: initialize-orce-data
+        # A fresh persistent volume mounted at /data shadows the image's
+        # baked-in Node-RED runtime files (settings.js, ...); seed them once.
+        - name: seed-data
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -eu
-              if [ ! -f /persistent-data/.orce-data-initialized ] || [ ! -f /persistent-data/settings.js ]; then
-                cp -a /data/. /persistent-data/
-                touch /persistent-data/.orce-data-initialized
-              fi
+          command: ["/bin/sh", "-c", "[ -f /seed/settings.js ] || cp -a /data/. /seed/"]
           volumeMounts:
             - name: orce-data
-              mountPath: /persistent-data
+              mountPath: /seed
         {{- end }}
         {{- if .Values.localTSA.enabled }}
         # openssl ts -reply needs a writable, pre-existing serial file.
@@ -56,8 +46,12 @@ spec:
             - name: http
               containerPort: 1880
               protocol: TCP
-          {{- if or .Values.global.archiveAuditTokenSecretRef.name .Values.global.archiveAuditToken }}
+          {{- if or .Values.global.archiveAuditTokenSecretRef.name .Values.global.archiveAuditToken .Values.extraEnv }}
           env:
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if or .Values.global.archiveAuditTokenSecretRef.name .Values.global.archiveAuditToken }}
             - name: ORCE_ARCHIVE_AUDIT_LOG_BEARER_TOKEN
               {{- if .Values.global.archiveAuditTokenSecretRef.name }}
               valueFrom:
@@ -67,11 +61,7 @@ spec:
               {{- else }}
               value: {{ .Values.global.archiveAuditToken | quote }}
               {{- end }}
-          {{- else }}
-          {{- with .Values.extraEnv }}
-          env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- end }}
           {{- end }}
           {{- if or .Values.persistence.enabled .Values.localTSA.enabled .Values.flowsFile.enabled }}
           volumeMounts:

@@ -1,6 +1,7 @@
 import {
   ArrowsRightLeftIcon,
   CheckCircleIcon,
+  CircleStackIcon,
   ClipboardDocumentListIcon,
   DocumentTextIcon,
   EyeIcon,
@@ -12,6 +13,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { getUIBasePath } from '@/config'
 import { useScrollStore } from '@/core/store/scroll'
 import { OID4VP_STATE_KEY } from '@/hydra-login-guard'
+import SemanticHubView from '@/modules/semantic-hub/views/SemanticHubView.vue'
 import TemplateCatalogueListView from '@/modules/template-catalogue/views/TemplateCatalogueListView.vue'
 import TemplateCatalogueView from '@/modules/template-catalogue/views/TemplateCatalogueView.vue'
 import ApproveContractTemplateView from '@/modules/template-repository/views/ApproveContractTemplateView.vue'
@@ -21,10 +23,7 @@ import { authenticationService } from '@/services/authentication-service'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAuthTokenStore } from '@/stores/auth-token-store'
 import { useNavStore } from '@/stores/nav-store'
-import ArchiveDashboardView from '@/views/archive/ArchiveDashboardView.vue'
 import AuditView from '@/views/audit/AuditView.vue'
-import ComplianceInvestigationView from '@/views/audit/ComplianceInvestigationView.vue'
-import IncidentListView from '@/views/audit/IncidentListView.vue'
 import AuthSuccessView from '@/views/auth/AuthSuccessView.vue'
 import LoginView from '@/views/auth/LoginView.vue'
 import PidPresentationView from '@/views/auth/PidPresentationView.vue'
@@ -35,9 +34,7 @@ import NewContractView from '@/views/contract/NewContractView.vue'
 import ReviewContractView from '@/views/contract/ReviewContractView.vue'
 import ViewContractView from '@/views/contract/ViewContractView.vue'
 import ContractTemplateListView from '@/views/contract-template-list/ContractTemplateListView.vue'
-import DeletedContractTemplateListView from '@/views/contract-template-list/DeletedContractTemplateListView.vue'
 import FrontPageView from '@/views/FrontPageView.vue'
-import SignatureComplianceView from '@/views/signing/SignatureComplianceView.vue'
 import SigningDashboardView from '@/views/signing/SigningDashboardView.vue'
 import TaskListView from '@/views/task/TaskListView.vue'
 
@@ -79,7 +76,9 @@ const ROUTES = {
   },
   SIGNING: {
     DASHBOARD: 'signing.dashboard',
-    COMPLIANCE: 'signing.compliance',
+  },
+  SEMANTIC_HUB: {
+    DASHBOARD: 'semantic_hub.dashboard',
   },
 } as const
 
@@ -124,18 +123,6 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       title: 'DCS - New Template',
       roles: ['TEMPLATE_CREATOR', 'TEMPLATE_REVIEWER', 'TEMPLATE_APPROVER', 'TEMPLATE_MANAGER'],
-    },
-  },
-  {
-    path: '/templates/deleted',
-    name: 'templates.deleted',
-    component: DeletedContractTemplateListView,
-    meta: {
-      name: 'Deleted Templates',
-      hideInSidebar: true,
-      requiresAuth: true,
-      title: 'DCS - Deleted Templates',
-      roles: ['TEMPLATE_MANAGER'],
     },
   },
   {
@@ -250,44 +237,6 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       title: 'DCS - Template Catalogue View',
       roles: ['TEMPLATE_MANAGER'],
-    },
-  },
-  {
-    path: '/archive',
-    name: 'archive.dashboard',
-    component: ArchiveDashboardView,
-    meta: {
-      name: 'Archive',
-      icon: ClipboardDocumentListIcon,
-      requiresAuth: true,
-      title: 'DCS - Archive',
-      order: 6,
-      roles: ['ARCHIVE_MANAGER', 'CONTRACT_OBSERVER'],
-    },
-  },
-  {
-    path: '/compliance',
-    name: 'compliance.investigation',
-    component: ComplianceInvestigationView,
-    meta: {
-      name: 'Compliance',
-      icon: ClipboardDocumentListIcon,
-      requiresAuth: true,
-      title: 'DCS - Compliance',
-      order: 7,
-      roles: ['COMPLIANCE_OFFICER'],
-    },
-  },
-  {
-    path: '/compliance/incidents',
-    name: 'compliance.incidents',
-    component: IncidentListView,
-    meta: {
-      name: 'Compliance Incidents',
-      hideInSidebar: true,
-      requiresAuth: true,
-      title: 'DCS - Compliance Incidents',
-      roles: ['COMPLIANCE_OFFICER'],
     },
   },
   {
@@ -437,27 +386,16 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
-    path: '/signing/:did',
-    name: 'signing.contract',
-    component: SigningDashboardView,
+    path: '/semantic-hub',
+    name: ROUTES.SEMANTIC_HUB.DASHBOARD,
+    component: SemanticHubView,
     meta: {
-      name: 'Secure Contract Viewer',
-      hideInSidebar: true,
+      name: 'Semantic Hub',
+      icon: CircleStackIcon,
       requiresAuth: true,
-      title: 'DCS - Secure Contract Viewer',
-      roles: ['CONTRACT_SIGNER', 'CONTRACT_MANAGER', 'CONTRACT_OBSERVER'],
-    },
-  },
-  {
-    path: '/signature/compliance/:did',
-    name: ROUTES.SIGNING.COMPLIANCE,
-    component: SignatureComplianceView,
-    meta: {
-      name: 'Signature Compliance',
-      hideInSidebar: true,
-      requiresAuth: true,
-      title: 'DCS - Signature Compliance',
-      roles: ['COMPLIANCE_OFFICER', 'CONTRACT_OBSERVER', 'AUDITOR', 'CONTRACT_MANAGER'],
+      title: 'DCS - Semantic Hub',
+      order: 6,
+      roles: ['TEMPLATE_MANAGER'],
     },
   },
   {
@@ -482,10 +420,12 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
 
+  // Refresh when localStorage has tokens and OID4VP state is absent. Redirect if authenticated.
   if (to.name === ROUTES.HOME) {
-    const oid4vpLoginActive = !!sessionStorage.getItem(OID4VP_STATE_KEY)
-    if (!authStore.isAuthenticated && !oid4vpLoginActive) {
-      if (!authStore.restoreFromAccessToken() && useAuthTokenStore().isAuthSet) {
+    if (!authStore.isAuthenticated) {
+      const hadAccessToken = useAuthTokenStore().isAuthSet
+      const oid4vpLoginActive = !!sessionStorage.getItem(OID4VP_STATE_KEY)
+      if (hadAccessToken && !oid4vpLoginActive) {
         await authenticationService.refresh()
       }
     }
@@ -500,10 +440,6 @@ router.beforeEach(async (to) => {
   }
 
   if (authStore.isAuthenticated) {
-    return true
-  }
-
-  if (authStore.restoreFromAccessToken()) {
     return true
   }
 

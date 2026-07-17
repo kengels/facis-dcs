@@ -144,6 +144,9 @@ func (h *Submitter) Handle(ctx context.Context, cmd SubmitCmd) error {
 		if err := validation.ValidateContractSemantics(contractData); err != nil {
 			return fmt.Errorf("contract semantic validation failed: %w", err)
 		}
+		if err := validation.RequireHubConformance(ctx, contractData); err != nil {
+			return fmt.Errorf("contract submission blocked: %w", err)
+		}
 
 		resp, targetState, err := h.prepareInitialSubmitTasks(ctx, tx, processData, cmd)
 		if err != nil {
@@ -177,6 +180,9 @@ func (h *Submitter) Handle(ctx context.Context, cmd SubmitCmd) error {
 		}
 		if err := validation.ValidateContractSemantics(contractData); err != nil {
 			return fmt.Errorf("contract semantic validation failed: %w", err)
+		}
+		if err := validation.RequireHubConformance(ctx, contractData); err != nil {
+			return fmt.Errorf("contract submission blocked: %w", err)
 		}
 
 		err = h.RTRepo.ReopenTasks(ctx, tx, cmd.DID)

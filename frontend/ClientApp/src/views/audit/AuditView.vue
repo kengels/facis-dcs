@@ -4,11 +4,9 @@ import { auditingService } from '@/services/auditing-service'
 import { useAuthStore } from '@/stores/auth-store'
 import type { AuditReportFormat, AuditScope } from '@/models/requests/auditing-request'
 import type { AuditFinding } from '@/models/responses/auditing-response'
-import type { AuditReportArtifact } from '@/models/services/auditing-service'
 
 const auditFindingsByScope = ref<Partial<Record<AuditScope, AuditFinding[]>>>({})
 const auditErrorsByScope = ref<Partial<Record<AuditScope, string>>>({})
-const reportErrorsByScope = ref<Partial<Record<AuditScope, string>>>({})
 const executedAuditScopes = ref<Partial<Record<AuditScope, boolean>>>({})
 const selectedFindingId = ref<number | string | null>(null)
 const auditLoadingScope = ref<AuditScope | null>(null)
@@ -17,7 +15,6 @@ const reportLoadingFormat = ref<AuditReportFormat | null>(null)
 const selectedScope = ref<AuditScope>('contracts')
 const didFilter = ref('')
 const justification = ref('')
-const preparedReports = ref<Partial<Record<AuditScope, AuditReportArtifact & { requestKey: string }>>>({})
 const authStore = useAuthStore()
 const isArchiveManagerOnly = computed(
   () => authStore.user?.roles.includes('ARCHIVE_MANAGER') && !authStore.user?.roles.includes('AUDITOR'),
@@ -54,7 +51,6 @@ watch(
 
 const findings = computed(() => auditFindingsByScope.value[selectedScope.value] ?? [])
 const error = computed(() => auditErrorsByScope.value[selectedScope.value] ?? null)
-const reportError = computed(() => reportErrorsByScope.value[selectedScope.value] ?? null)
 const hasExecutedAudit = computed(() => executedAuditScopes.value[selectedScope.value] === true)
 const auditLoading = computed(() => auditLoadingScope.value !== null)
 const reportLoading = computed(() => reportLoadingScope.value !== null)
@@ -110,7 +106,7 @@ const selectedFindingDetailRows = computed(() => {
     { label: 'Expected value', value: detailValue(eventData?.expectedValue) },
     { label: 'Expected values', value: detailValue(eventData?.expectedValues) },
     { label: 'Operator', value: detailValue(eventData?.operator) },
-    { label: 'Semantic Path', value: stringDetail(eventData?.semanticPath) },
+    { label: 'Field IRI', value: stringDetail(eventData?.fieldIri) },
     { label: 'Path', value: stringDetail(eventData?.path) },
     { label: 'Ontology Term', value: stringDetail(eventData?.ontologyTerm) },
     { label: 'Object Type', value: stringDetail(eventData?.objectType ?? finding.object_type) },
@@ -126,11 +122,6 @@ const timelineEvents = computed(() => {
   return [...findings.value]
     .filter((finding) => auditItemKind(finding) === 'event')
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
-})
-const auditResultTestKey = computed(() => {
-  const requestedDid = didFilter.value.trim()
-  if (!requestedDid) return undefined
-  return findings.value.some((finding) => finding.did?.trim() === requestedDid) ? requestedDid : undefined
 })
 const failedCheckCount = computed(
   () => checkFindings.value.filter((finding) => auditResult(finding) === 'failed').length,
@@ -189,18 +180,14 @@ const executeAudit = async () => {
   auditErrorsByScope.value = { ...auditErrorsByScope.value, [scope]: undefined }
   executedAuditScopes.value = { ...executedAuditScopes.value, [scope]: true }
   try {
-    const did = didFilter.value.trim() || undefined
-    const auditJustification = justification.value.trim()
     const scopeFindings = await auditingService.audit({
       scope,
-      did,
-      justification: auditJustification,
+      did: didFilter.value.trim() || undefined,
+      justification: justification.value.trim(),
     })
     auditFindingsByScope.value = { ...auditFindingsByScope.value, [scope]: scopeFindings }
     selectedFindingId.value = null
     activeAuditTab.value = scopeFindings.some((finding) => auditItemKind(finding) === 'check') ? 'checks' : 'timeline'
-    auditLoadingScope.value = null
-    void prepareReport(scope, did, auditJustification)
   } catch (err) {
     console.error('Audit Error:', err)
     auditErrorsByScope.value = {
@@ -208,31 +195,7 @@ const executeAudit = async () => {
       [scope]: err instanceof Error ? err.message : 'Audit could not be executed.',
     }
   } finally {
-    if (auditLoadingScope.value === scope) auditLoadingScope.value = null
-  }
-}
-
-async function prepareReport(scope: AuditScope, did: string | undefined, auditJustification: string): Promise<void> {
-  reportLoadingScope.value = scope
-  reportLoadingFormat.value = 'json'
-  reportErrorsByScope.value = { ...reportErrorsByScope.value, [scope]: undefined }
-  try {
-    const artifact = await auditingService.report({ scope, format: 'json', did, justification: auditJustification })
-    preparedReports.value = {
-      ...preparedReports.value,
-      [scope]: { ...artifact, requestKey: reportRequestKey(scope, did, auditJustification) },
-    }
-  } catch (err) {
-    console.error('Audit Report Preparation Error:', err)
-    reportErrorsByScope.value = {
-      ...reportErrorsByScope.value,
-      [scope]: err instanceof Error ? err.message : 'Audit report could not be prepared.',
-    }
-  } finally {
-    if (reportLoadingScope.value === scope && reportLoadingFormat.value === 'json') {
-      reportLoadingScope.value = null
-      reportLoadingFormat.value = null
-    }
+    auditLoadingScope.value = null
   }
 }
 
@@ -240,28 +203,22 @@ const generateReport = async (format: AuditReportFormat) => {
   const scope = selectedScope.value
   reportLoadingScope.value = scope
   reportLoadingFormat.value = format
-  reportErrorsByScope.value = { ...reportErrorsByScope.value, [scope]: undefined }
+  auditErrorsByScope.value = { ...auditErrorsByScope.value, [scope]: undefined }
   try {
-    const did = didFilter.value.trim() || undefined
-    const auditJustification = justification.value.trim()
-    const prepared = preparedReports.value[scope]
-    const requestKey = reportRequestKey(scope, did, auditJustification)
-    const artifact =
-      format === 'json' && prepared?.requestKey === requestKey
-        ? prepared
-        : await auditingService.report({ scope, format, did, justification: auditJustification })
+    const artifact = await auditingService.report({
+      scope,
+      format,
+      did: didFilter.value.trim() || undefined,
+      justification: justification.value.trim(),
+    })
     downloadBlob(artifact.bytes, artifact.contentType, artifact.filename)
   } catch (err) {
     console.error('Audit Report Error:', err)
-    reportErrorsByScope.value = { ...reportErrorsByScope.value, [scope]: 'Audit report could not be generated.' }
+    auditErrorsByScope.value = { ...auditErrorsByScope.value, [scope]: 'Audit report could not be generated.' }
   } finally {
     reportLoadingScope.value = null
     reportLoadingFormat.value = null
   }
-}
-
-function reportRequestKey(scope: AuditScope, did: string | undefined, auditJustification: string): string {
-  return JSON.stringify([scope, did ?? '', auditJustification])
 }
 
 const formatLabel = (value: string) => value.split('_').join(' ')
@@ -370,7 +327,7 @@ function auditItemKind(finding: AuditFinding): 'check' | 'event' {
   ) {
     return 'check'
   }
-  if (eventData?.ruleId || eventData?.policySetId || eventData?.semanticPath || eventData?.severity) {
+  if (eventData?.ruleId || eventData?.policySetId || eventData?.fieldIri || eventData?.severity) {
     return 'check'
   }
   return 'event'
@@ -583,7 +540,6 @@ function formatDateTime(value?: string): string {
           <span class="label-text mb-1">Scope</span>
           <select
             v-model="selectedScope"
-            data-test-id="audit-scope-filter"
             class="select-bordered select rounded-box"
             :disabled="auditLoading || reportLoading"
           >
@@ -597,7 +553,6 @@ function formatDateTime(value?: string): string {
           <span class="label-text mb-1">DID (optional)</span>
           <input
             v-model="didFilter"
-            data-test-id="audit-did-filter"
             class="input-bordered input rounded-box"
             :disabled="auditLoading || reportLoading"
           />
@@ -607,7 +562,6 @@ function formatDateTime(value?: string): string {
           <span class="label-text mb-1">Audit justification</span>
           <input
             v-model="justification"
-            data-test-id="audit-justification"
             required
             class="input-bordered input rounded-box"
             :disabled="auditLoading || reportLoading"
@@ -615,7 +569,6 @@ function formatDateTime(value?: string): string {
         </label>
 
         <button
-          data-test-id="audit-run"
           class="btn rounded-box btn-primary sm:self-end"
           :disabled="auditLoading || reportLoading || !justification.trim()"
           @click="executeAudit"
@@ -626,7 +579,6 @@ function formatDateTime(value?: string): string {
 
         <div class="flex flex-wrap gap-2 sm:self-end">
           <button
-            data-test-id="audit-export"
             class="btn rounded-box btn-outline"
             :disabled="reportLoading || auditLoading || !hasExecutedAudit || !justification.trim()"
             @click="generateReport('json')"
@@ -665,29 +617,20 @@ function formatDateTime(value?: string): string {
 
     <div v-if="selectedAuditLoading" class="p-4">Executing audit...</div>
     <div v-else-if="error" class="alert rounded-box alert-error">{{ error }}</div>
-    <div v-if="reportError" class="alert rounded-box alert-error">{{ reportError }}</div>
     <div v-if="auditHasPassed" class="alert rounded-box alert-success">
       Audit passed. No failed checks or review findings were returned.
     </div>
     <div v-if="auditIsEmpty" class="alert rounded-box alert-info">
       Audit completed successfully. No matching entries were found.
     </div>
-    <p v-if="preparedReports[selectedScope]?.reportId" data-test-id="audit-report-server-reference">
-      {{ preparedReports[selectedScope]?.reportId }}
-    </p>
 
     <div v-if="!selectedAuditLoading && !error" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-      <div
-        :data-test-id="auditResultTestKey ? 'audit-result' : undefined"
-        :data-test-key="auditResultTestKey"
-        class="overflow-x-auto rounded-box border border-base-content/10"
-      >
+      <div class="overflow-x-auto rounded-box border border-base-content/10">
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-content/10 px-4 py-3">
           <div role="tablist" class="tabs-box tabs">
             <button
               type="button"
               role="tab"
-              data-test-id="audit-tab-checks"
               class="tab"
               :class="activeAuditTab === 'checks' ? 'tab-active' : ''"
               @click="selectTab('checks')"
@@ -698,7 +641,6 @@ function formatDateTime(value?: string): string {
             <button
               type="button"
               role="tab"
-              data-test-id="audit-tab-timeline"
               class="tab"
               :class="activeAuditTab === 'timeline' ? 'tab-active' : ''"
               @click="selectTab('timeline')"
@@ -746,12 +688,7 @@ function formatDateTime(value?: string): string {
             </details>
           </div>
         </div>
-        <table
-          v-if="activeAuditTab === 'checks'"
-          data-test-id="audit-checks-results"
-          :data-test-key="selectedScope"
-          class="table table-zebra"
-        >
+        <table v-if="activeAuditTab === 'checks'" class="table table-zebra">
           <thead>
             <tr>
               <th>Status</th>
@@ -763,8 +700,6 @@ function formatDateTime(value?: string): string {
             <tr
               v-for="finding in filteredFindings"
               :key="finding.id"
-              data-test-id="audit-finding"
-              :data-test-key="String(finding.id)"
               class="cursor-pointer"
               :class="String(selectedFindingId) === String(finding.id) ? 'bg-primary/10' : ''"
               tabindex="0"
@@ -797,7 +732,7 @@ function formatDateTime(value?: string): string {
           </tbody>
         </table>
 
-        <table v-else data-test-id="audit-timeline-results" :data-test-key="selectedScope" class="table table-zebra">
+        <table v-else class="table table-zebra">
           <thead>
             <tr>
               <th>Time</th>
@@ -810,8 +745,6 @@ function formatDateTime(value?: string): string {
             <tr
               v-for="event in timelineEvents"
               :key="event.id"
-              data-test-id="audit-event"
-              :data-test-key="rawEventType(event) ?? String(event.id)"
               class="cursor-pointer"
               :class="String(selectedFindingId) === String(event.id) ? 'bg-primary/10' : ''"
               tabindex="0"
@@ -819,15 +752,7 @@ function formatDateTime(value?: string): string {
               @keydown.enter.prevent="selectFinding(event)"
               @keydown.space.prevent="selectFinding(event)"
             >
-              <td class="whitespace-nowrap">
-                <time
-                  data-test-id="audit-event-timestamp"
-                  :data-test-key="rawEventType(event) ?? String(event.id)"
-                  :datetime="event.created_at"
-                >
-                  {{ formatDateTime(event.created_at) }}
-                </time>
-              </td>
+              <td class="whitespace-nowrap">{{ formatDateTime(event.created_at) }}</td>
               <td class="max-w-xl min-w-72">
                 <div class="font-medium">{{ event.title ?? formatLabel(rawEventType(event) ?? 'Audit event') }}</div>
               </td>
@@ -853,7 +778,7 @@ function formatDateTime(value?: string): string {
         <div v-if="!selectedFinding" class="p-4 text-sm opacity-70">
           Select a row to inspect the corresponding audit evidence.
         </div>
-        <div v-else data-test-id="audit-selected-details" class="space-y-4 p-4">
+        <div v-else class="space-y-4 p-4">
           <div v-if="selectedFindingKind === 'check'">
             <div class="mb-2 badge" :class="findingBadgeClass(selectedFinding)">
               {{ auditResultLabel(selectedFinding) }}

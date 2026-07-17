@@ -22,18 +22,18 @@ temporal evidence.
   rewrites the JSON-LD document nor resolves component DIDs from the repository.
 - Contract-data presence and validity, policy operands, clause bindings, domain
   fields, constraints, and required domain fields use this effective content
-  view (`backend/internal/base/validation/templatepolicy.go:164-189`). Field IDs
+  view (`backend/internal/base/validation/templatepolicy.go:179-204`). Field IDs
   are combined across the same sources so a clause or policy can refer to data
   supplied by the persisted composition
-  (`backend/internal/base/validation/templatepolicy.go:670-677`).
+  (`backend/internal/base/validation/templatepolicy.go:726-734`).
 - Canonical root structure, audit metadata, and lifecycle state remain root-only.
   Component-specific rules also remain scoped to a standalone `COMPONENT`
-  template (`backend/internal/base/validation/templatepolicy.go:166-189`).
+  template (`backend/internal/base/validation/templatepolicy.go:179-204`).
 - Evaluation stops after immediate snapshots. A snapshot's own nested snapshots
   are not recursively added to the view. This boundary matches the persisted
   parent composition and avoids silently expanding its audit scope.
 - Findings originating in a component retain a path prefixed with the persisted
-  snapshot location (`backend/internal/base/validation/templatepolicy.go:782-793`).
+  snapshot location (`backend/internal/base/validation/templatepolicy.go:736-748`).
   The event evidence preserves that path for reports and forensic analysis
   (`backend/internal/processauditandcompliance/policy_audit.go:32-43`).
 

@@ -5,12 +5,12 @@ These build canonical `dcs:documentStructure`-enveloped contract documents
 (see backend/internal/base/validation/documentdata.go `isCanonicalEnvelope`)
 carrying either:
 
-  - the legacy bare-Duty `dcs:policies` shape (flat array of
+  - the bare-Duty `dcs:policies` shape (flat array of
     `odrl:Duty`/`odrl:Permission`/`odrl:Prohibition` nodes, each with only an
-    `odrl:constraint` — no `odrl:action`, no enclosing `odrl:Set`, no
-    parties/target), or
+    `odrl:constraint` — no `odrl:action`, no enclosing policy node, no
+    parties/target), which structural validation must reject, or
   - the canonical ODRL 2.2 shape (docs/adr-6-odrl-profile-enforcement.md):
-    one enclosing `odrl:Set` (`uid` == the contract DID, `odrl:profile`
+    one enclosing `odrl:Offer` while unsigned (its @id is its odrl:uid, `odrl:profile`
     declared),
     whose rules each carry exactly one `odrl:action` plus
     `odrl:assigner`/`odrl:assignee`/`odrl:target`.
@@ -18,7 +18,7 @@ carrying either:
 Both shapes constrain the SAME field (`urn:uuid:field-provider-country`, a
 string, or `urn:uuid:field-provider-coverage`, a number) so the same fixture
 family can drive the structure, enforcement, operator-matrix, and
-legacy-shape-rejection scenarios.
+bare-shape-rejection scenarios.
 """
 
 FIELD_COUNTRY = "urn:uuid:field-provider-country"
@@ -31,11 +31,10 @@ _FIELD_BY_NAME = {
 
 
 def _semantic_value(field_name: str, actual_value):
-    field_id, parameter_name, _ = _FIELD_BY_NAME[field_name]
+    field_id, _, _ = _FIELD_BY_NAME[field_name]
     return {
+        "forField": field_id,
         "blockId": "block-clause-1",
-        "conditionId": "provider",
-        "parameterName": parameter_name,
         "parameterValue": actual_value,
     }
 
@@ -51,9 +50,10 @@ def _requirement_field(field_name: str) -> dict:
     }
 
 
-def legacy_bare_duty_policies(field_name: str, operator: str, right_operand) -> list:
-    """The shape the codebase emits/accepts TODAY (no action/parties/target,
-    no enclosing Set) — bare `odrl:Duty` nodes each holding one constraint.
+def bare_duty_policies(field_name: str, operator: str, right_operand) -> list:
+    """Bare `odrl:Duty` nodes each holding one constraint — no action, no
+    parties/target, no enclosing policy node. Exists to prove structural
+    validation rejects it.
     """
     field_id, _, _ = _FIELD_BY_NAME[field_name]
     return [
@@ -77,13 +77,13 @@ def odrl_set_policies(
     right_operand,
     rule_type: str = "odrl:Duty",
 ) -> dict:
-    """The canonical ODRL 2.2 shape: one enclosing `odrl:Set` (`uid` ==
+    """The canonical ODRL 2.2 shape: one enclosing `odrl:Offer` (`@id` anchored to
     contract DID), `odrl:profile` declared, rule carries exactly one
     `odrl:action` plus assigner/assignee/target.
     """
     field_id, _, _ = _FIELD_BY_NAME[field_name]
     rule_bucket = {
-        "odrl:Duty": "odrl:duty",
+        "odrl:Duty": "odrl:obligation",
         "odrl:Permission": "odrl:permission",
         "odrl:Prohibition": "odrl:prohibition",
     }[rule_type]
@@ -94,6 +94,7 @@ def odrl_set_policies(
         "odrl:assigner": {"@id": "did:web:example.org%3A9001:bdd-provider-org"},
         "odrl:assignee": {"@id": "did:web:example.org%3A9002:bdd-customer-org"},
         "odrl:target": {"@id": contract_did},
+        "dcs:prose": {"@id": "urn:uuid:block-clause-1"},
         "odrl:constraint": {
             "@type": "odrl:Constraint",
             "odrl:leftOperand": {"@id": field_id},
@@ -103,8 +104,7 @@ def odrl_set_policies(
     }
     return {
         "@id": "urn:uuid:policy-set-1",
-        "@type": "odrl:Set",
-        "uid": contract_did,
+        "@type": "odrl:Offer",
         "odrl:profile": {"@id": "https://w3id.org/facis/dcs/ontology/v1/odrl-profile"},
         rule_bucket: [rule],
     }
@@ -149,6 +149,7 @@ def build_contract_document(contract_did: str, field_name: str, policies, actual
             "dcs:layout": [
                 {
                     "@id": "urn:uuid:block-root",
+                    "@type": "dcs:LayoutNode",
                     "dcs:isRoot": True,
                     "dcs:children": {"@list": [{"@id": "urn:uuid:block-clause-1"}]},
                 }
@@ -174,16 +175,16 @@ def build_contract_document(contract_did: str, field_name: str, policies, actual
 def extract_policy_rules(policies) -> list:
     """Flattens either policy shape into a plain list of rule dicts.
 
-    - Legacy shape: `policies` IS already the flat list of rules.
-    - Target odrl:Set shape: `policies` is a single dict; rules live under
-      `odrl:permission` / `odrl:prohibition` / `odrl:duty` (or `odrl:obligation`)
+    - Bare shape: `policies` IS already the flat list of rules.
+    - Canonical policy shape: `policies` is a single dict; rules live under
+      `odrl:permission` / `odrl:prohibition` / `odrl:obligation`
       array properties.
     """
     if isinstance(policies, list):
         return [item for item in policies if isinstance(item, dict)]
     if isinstance(policies, dict):
         rules = []
-        for key in ("odrl:permission", "odrl:prohibition", "odrl:duty", "odrl:obligation"):
+        for key in ("odrl:permission", "odrl:prohibition", "odrl:obligation"):
             bucket = policies.get(key)
             if isinstance(bucket, list):
                 rules.extend(item for item in bucket if isinstance(item, dict))

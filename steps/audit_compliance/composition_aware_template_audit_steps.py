@@ -68,6 +68,15 @@ def _required_domain_requirement() -> dict:
     }
 
 
+def _requirement_with_fields(condition_id: str, fields: list[dict]) -> dict:
+    return {
+        "@id": f"urn:uuid:requirement-{condition_id}",
+        "@type": "dcs:DataRequirement",
+        "dcs:conditionId": condition_id,
+        "dcs:fields": fields,
+    }
+
+
 def _clause(*, bound: bool) -> dict:
     content: list[object] = ["This agreement is governed by "]
     if bound:
@@ -242,6 +251,7 @@ def _create_composed_parent(
         parent = TemplateService.fetch_template(context, did, headers=manager_headers)
         TemplateService.store_named(context, name, did, parent["updated_at"])
     context.composition_component_name = component_name
+    context.composition_parent_name = name
     return parent, component
 
 
@@ -299,6 +309,126 @@ def step_malformed_component_requirement(context, name):
 @given('contract template "{name}" has no bound root clause and embeds an immediate component with a clause bound to its contract data')
 def step_component_supplies_clause(context, name):
     _create_composed_parent(context, name, _valid_component(f"{name} Component"))
+
+
+@given('contract template "{name}" has an immediate component policy that references a field declared only by the root')
+def step_component_policy_references_root_field(context, name):
+    root = _document(
+        name,
+        contract_data=[_requirement()],
+        bound_clause=True,
+    )
+    component = _document(
+        f"{name} Component",
+        contract_data=[
+            _requirement_with_fields(
+                "component-country",
+                [_field("urn:uuid:field-country", "country", COUNTRY_DOMAIN_FIELD)],
+            )
+        ],
+        bound_clause=False,
+        policies=_policy("urn:uuid:field-country"),
+    )
+
+    def reference_root_field(snapshot: dict):
+        snapshot["dcs:policies"]["odrl:duty"][0]["odrl:constraint"]["odrl:leftOperand"] = {
+            "@id": "urn:uuid:field-jurisdiction"
+        }
+
+    _create_composed_parent(
+        context,
+        name,
+        component,
+        root_data=root,
+        snapshot_transform=reference_root_field,
+    )
+
+
+@given('contract template "{name}" has an unknown root domain field and a valid immediate component')
+def step_unknown_root_domain(context, name):
+    root = _document(
+        name,
+        contract_data=[_requirement(UNKNOWN_DOMAIN_FIELD)],
+        bound_clause=True,
+    )
+    _create_composed_parent(
+        context,
+        name,
+        _valid_component(f"{name} Component"),
+        root_data=root,
+    )
+
+
+@given('contract template "{name}" has valid root content and an immediate component with an unknown domain field')
+def step_unknown_component_domain(context, name):
+    _create_composed_parent(
+        context,
+        name,
+        _valid_component(f"{name} Component", domain_field=UNKNOWN_DOMAIN_FIELD),
+        root_data=_document(name, contract_data=[_requirement()], bound_clause=True),
+    )
+
+
+@given('contract template "{name}" has a root policy constraint without an operator and a valid immediate component')
+def step_malformed_root_policy_constraint(context, name):
+    root_policy = _policy()
+    root_policy["odrl:duty"][0]["odrl:constraint"].pop("odrl:operator")
+    _create_composed_parent(
+        context,
+        name,
+        _valid_component(f"{name} Component"),
+        root_data=_document(
+            name,
+            contract_data=[_requirement()],
+            bound_clause=True,
+            policies=root_policy,
+        ),
+    )
+
+
+@given('contract template "{name}" has valid root content and an immediate component policy constraint without an operator')
+def step_malformed_component_policy_constraint(context, name):
+    def remove_operator(snapshot: dict):
+        snapshot["dcs:policies"]["odrl:duty"][0]["odrl:constraint"].pop("odrl:operator")
+
+    _create_composed_parent(
+        context,
+        name,
+        _valid_component(f"{name} Component", policies=True),
+        root_data=_document(
+            name,
+            contract_data=[_requirement()],
+            bound_clause=True,
+            policies=_policy(),
+        ),
+        snapshot_transform=remove_operator,
+    )
+
+
+@given('contract template "{name}" distributes required jurisdiction, country, and signature fields across root and immediate component')
+def step_required_fields_are_distributed(context, name):
+    root = _document(
+        name,
+        contract_data=[_requirement()],
+        bound_clause=True,
+    )
+    component = _document(
+        f"{name} Component",
+        contract_data=[
+            _requirement_with_fields(
+                "component-required-fields",
+                [
+                    _field("urn:uuid:field-country", "country", COUNTRY_DOMAIN_FIELD),
+                    _field(
+                        "urn:uuid:field-signature-level",
+                        "signature-level",
+                        SIGNATURE_DOMAIN_FIELD,
+                    ),
+                ],
+            )
+        ],
+    )
+    _create_composed_parent(context, name, component, root_data=root)
 
 
 @given('contract template "{name}" and its immediate component have no clause bound to contract data')
@@ -376,6 +506,23 @@ def step_component_metadata_lifecycle_ignored(context, name):
     )
 
 
+@given('registered contract template "{name}" has valid root structure metadata and lifecycle and embeds a component snapshot invalid in those areas')
+def step_all_root_only_policy_areas(context, name):
+    def invalidate_root_only_areas(snapshot: dict):
+        snapshot["dcs:documentStructure"]["dcs:layout"] = []
+        snapshot.pop("dcs:metadata", None)
+        snapshot["state"] = "DRAFT"
+
+    _create_composed_parent(
+        context,
+        name,
+        _valid_component(f"{name} Component"),
+        root_data=_document(name, contract_data=[_requirement()], bound_clause=True),
+        snapshot_transform=invalidate_root_only_areas,
+        register_parent=True,
+    )
+
+
 @given('standalone component template "{name}" has an incomplete contract data field')
 def step_standalone_component_incomplete_data(context, name):
     data = _document(name, contract_data=[_requirement(complete=False)])
@@ -401,6 +548,18 @@ def step_snapshot_boundary(context, name):
         name,
         component_data,
         snapshot_transform=add_nested_snapshot,
+    )
+    context.composition_parent_snapshot_before = copy.deepcopy(
+        parent["template_data"]["dcs:metadata"]["dcs:subTemplates"][0]
+    )
+
+
+@given('contract template "{name}" embeds a valid immediate component snapshot')
+def step_valid_persisted_snapshot(context, name):
+    parent, _ = _create_composed_parent(
+        context,
+        name,
+        _valid_component(f"{name} Component"),
     )
     context.composition_parent_snapshot_before = copy.deepcopy(
         parent["template_data"]["dcs:metadata"]["dcs:subTemplates"][0]
@@ -468,6 +627,21 @@ def step_rule_has_error(context, rule_id):
     assert matches, f"Expected error finding {rule_id}; got {_policy_findings(context)!r}"
 
 
+@then('template policy rule "{rule_id}" has an error finding below "{path_prefix}"')
+def step_rule_has_error_below_path(context, rule_id, path_prefix):
+    matches = [
+        finding
+        for finding in _policy_findings(context)
+        if finding.get("ruleId") == rule_id
+        and finding.get("severity") == "error"
+        and str(finding.get("path", "")).startswith(path_prefix)
+    ]
+    assert matches, (
+        f"Expected error finding {rule_id} below {path_prefix!r}; "
+        f"got {_policy_findings(context)!r}"
+    )
+
+
 @then("template policy rules have no findings for")
 def step_rules_have_no_findings(context):
     found = {finding.get("ruleId") for finding in _policy_findings(context)}
@@ -477,9 +651,7 @@ def step_rules_have_no_findings(context):
 
 @then("the persisted immediate component snapshot is unchanged")
 def step_snapshot_unchanged(context):
-    parent_names = [name for name in context.named_templates if name != context.composition_component_name]
-    assert len(parent_names) == 1, f"Expected one parent template, got {parent_names!r}"
-    parent = TemplateService.named(context, parent_names[0])
+    parent = TemplateService.named(context, context.composition_parent_name)
     persisted = TemplateService.fetch_template(
         context,
         parent["did"],

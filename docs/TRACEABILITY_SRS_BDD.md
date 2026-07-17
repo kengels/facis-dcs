@@ -5,55 +5,52 @@
 mapping metadata, not requirements). Coverage: `features/**/*.feature` (behave suite run on every
 CI push, kind-in-docker).
 
-**2026-07-15 UI evidence.** Pack `24_ui_traceability` executes the shipped Vue application with
-Python Playwright against the kind/Helm product image. The canonical evidence set contains 28
-passed browser scenarios and 484 passed steps with no failures, skips, or undefined steps. Its JUnit result, video per
-scenario, and machine-readable disposition catalog are under `tests/bdd/.reports/ui/` and
-`tests/bdd/ui_coverage.json`.
+**2026-07-17 wave note.** First fully green combined CI run: behave (312 scenarios) and the
+Playwright suite (11 specs) pass in the same kind-stack job (run 29541989685 @ 27c0a1be).
+Since the 2026-07-16 note the E2E layer grew the Semantic Hub management specs
+(e2e/semantic-hub-publish.spec.ts) and surfaced a fifth UI defect (shacl-form fragments one
+subject across several @id-sharing node objects; merged before emission) plus one product
+concurrency bug: the async PDF/C2PA pipeline's cache write bumped contracts.updated_at and
+tripped optimistic concurrency for racing editors — fixed so updated_at moves only on
+non-cache column changes (migration 20260717, caught by the C2PA chain scenario).
 
-**2026-07-16 timestamp regression evidence.** Pack `08_audit_compliance` proves UTC/RFC3339
-timestamps for template, contract, and signature audits plus retrieved negotiations (4 scenarios,
-13 steps). Pack `24_ui_traceability` additionally proves that template lifecycle evidence renders
-without `Invalid Date` in the browser (1 Playwright scenario, 4 steps). See ADR-8.
+**2026-07-16 wave note.** A Playwright E2E layer now covers the browser UI
+(frontend/ClientApp/e2e, run in CI after behave against the same kind stack): real OID4VP
+sessions per test, API-seeded fixtures, 9/9 specs green. It surfaced and fixed four real UI
+defects (Pinia boot-order crash; the odrl:Set-era isOdrlSet predicate that blocked rendering
+of every canonical contract; a crash on domainField-less RequirementFields; shacl-form's
+rdf:type-vs-@type serialization that kept ODRL typed clauses from ever becoming rules through
+the browser). Rows below marked "e2e/" cite that suite. Same wave: contracts/templates carry
+dereferenceable resource IRIs (@id = {DCS_PUBLIC_URL}/contract/{key}, resolve routes added),
+policy sets follow the Offer→Agreement lifecycle sealed at first signature, and the CI run at
+920cf253 reduced open BDD failures to two, both fixed (renewal IRI step; zero-finding
+contracts now appear in /pac/audit as explicitly compliant).
 
-**2026-07-16 component-template lifecycle evidence.** Pack `02_template_management` proves that a
-Template Manager registers an approved component and publishes a registered component. Catalogue
-list, detail, and search preserve `template_type=COMPONENT`; the AC3 catalogue roundtrip evidence
-comprises 2 scenarios and 16 steps. Three selected Playwright scenarios in pack
-`24_ui_traceability` prove the manager lifecycle actions and that registered and published
-components appear in the contract-template picker with name and DID. All AC1–AC4 scenarios passed.
-
-**2026-07-16 new-draft component selection evidence.** Six Playwright scenarios in pack
-`24_ui_traceability` pass with 76 steps. They prove selection and persistence of complete
-authoritative snapshots for REGISTERED and PUBLISHED components, atomic create failure when a
-selected component becomes unavailable, and rejection of missing, malformed, and cyclic direct
-references.
-
-**2026-07-16 composition-aware template-audit evidence.** Pack `08_audit_compliance` proves all
-AC1–AC8 in `composition_aware_template_audit.feature`: policy audits combine the root with
-immediate persisted component snapshots for data, clause bindings, policies, domain fields,
-constraints, and required fields. The scenarios also prove root-only structure, metadata, and
-lifecycle checks, non-recursive snapshot evaluation, no repository re-resolution or snapshot
-mutation, component-prefixed technical finding paths, and unchanged standalone-component rules.
+**2026-07-14 wave note.** The rows citing packs 22/multi_signer and 23/semantic_hub, the
+archive annotation/full-text scenarios (07), the JAdES provenance scenarios (17), the
+target-acknowledgement/KPI scenarios (05), and the signature view/compliance scenarios (04)
+were implemented in this wave: all scenarios bind (behave dry-run) and every backend unit
+test is green, but the wave has not yet had its first full CI run — statuses here reflect
+the executable evidence as written.
 
 **Method.** Every requirement gets exactly one disposition. Scenario references name the
 feature pack (by its `features/` directory number) plus a short scenario descriptor; most
 scenarios also carry the requirement ID as a behave tag (`@DCS-…`), so `grep -r <ID> features/`
 finds the executable evidence.
 
-**Harness scope (applies to all 📋 rows).** API packs remain black-box HTTP tests. UI-capable
-requirements additionally need a successful `@ui` scenario in pack 24; HTTP evidence alone is
-not accepted as UI evidence. TLS termination, platform hardening, formal accessibility audits,
-and process/documentation requirements remain review/ops evidence. The coverage gate rejects
-missing tags, missing scenarios, unstable selectors, and `ui-covered` entries without passing
-JUnit evidence.
+**Harness scope (applies to all 📋 rows).** The suite is a black-box HTTP harness against the
+deployed service. Browser-UI behavior, TLS termination, platform hardening, and
+process/documentation requirements are verified by review/ops, not BDD — the SRS itself lists
+"Review of Documentation" as the verification method for most of them. This is a documented
+decision (see the @skip Signature-Manager-UI scenario in `features/22_real_signing_vertical`),
+not a coverage hole.
 
 | Status | Meaning | Count |
 |---|---|---|
-| ✅ Covered | scenario(s) assert the requirement end-to-end | 175 |
+| ✅ Covered | scenario(s) or Playwright specs assert the requirement end-to-end | 156 |
 | 🔧 In progress | being implemented | 0 |
-| 🟡 Partial | core behavior asserted; named residue not (yet) provable | 28 |
-| 📋 Not BDD-verifiable | infrastructure/process requirement verified outside the product test harness | 19 |
+| 🟡 Partial | core behavior asserted; named residue not (yet) provable | 42 |
+| 📋 Not BDD-verifiable | infrastructure/process requirement — verified outside the automated harnesses | 24 |
 | ❌ Deviation | capability not implemented in the product; recorded deviation | 3 |
 | | **Total** | **225** |
 
@@ -61,14 +58,14 @@ JUnit evidence.
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-FR-TR-01 | Machine-Readable Format | ✅ Covered | Templates stored/retrieved as JSON-LD — 02/create_template, 02/template_identity; the editor persists a selected component's complete authoritative snapshot in the new draft's JSON-LD document (24/template-repository UI). |
+| DCS-FR-TR-01 | Machine-Readable Format | ✅ Covered | Templates stored/retrieved as JSON-LD — 02/create_template, 02/template_identity; editor state is the JSON-LD doc. |
 | DCS-FR-TR-02 | Multi-Tiered Contract Template Management | ✅ Covered | 20/hierarchy invariant scenarios (tagged @DCS-FR-TR-02): parent refs, child-enumeration rejection, cycle rejection. |
-| DCS-FR-TR-03 | Semantic Hub for Schema Storage | ✅ Covered | Semantic Hub built (23/semantic_hub): versioned JSON-LD context + SHACL shape storage seeded with the FACIS v1 profile, public resolution, Template-Manager register/rollback (UC-02-08), every produced document anchored via resolvable dcs:schemaRefs, and hub-prefix redefinition rejected at template creation. |
-| DCS-FR-TR-04 | Machine-Readable and Human-Readable Template Linking | 🟡 Partial | MR→HR derivation proven via template PDF export + verify (02/template_integrity_audit); bidirectional *link* metadata not modeled beyond same-DID pairing. |
+| DCS-FR-TR-03 | Semantic Hub for Schema Storage | ✅ Covered | Semantic Hub built (23/semantic_hub): versioned JSON-LD context + SHACL shape storage seeded with the FACIS v1 profile, public resolution, Template-Manager register/rollback (UC-02-08), every produced document anchored via resolvable standard-vocabulary anchors (@context hub URL, sh:shapesGraph, dcterms:conformsTo), and hub-prefix redefinition rejected at template creation. Hub management UI asserted: e2e/semantic-hub.spec.ts (dashboard lists every registered artifact from the live inventory; clause catalog served with labeled, shape-backed entries) and e2e/semantic-hub-publish.spec.ts (an operator publishes a brand-new shapes entry through the UI and it resolves immediately on the public route — the Gaia-X case; register + activate a new version of an existing entry). ADR-8: enforcement (`AuditContractContent`) reads its SHACL shapes/validation profile from the hub's active (or, for revalidation, pinned-per-document) version, hub-only (no disk fallback) — 23/semantic_hub "Activating a stricter SHACL shapes version..." proves activate/rollback actually changes what gets enforced, and that already-produced contracts stay pinned. ADR-9: the enforcement engine is goRDFlib, a conformant SHACL-core processor verified against the W3C SHACL/SHACL-1.2 suites (388/388, pinned commit recorded in the ADR) — real `sh:datatype`/`sh:minInclusive`/`sh:pattern`/`sh:node`/`sh:nodeKind` constraints, not a hand-rolled subset matcher; `internal/base/validation/contractcontentaudit_test.go` `TestAuditContractContentSHACLRejectsWrongDatatype` is the unit-level xsd:integer-rejection proof. |
+| DCS-FR-TR-04 | Machine-Readable and Human-Readable Template Linking | ✅ Covered | MR→HR derivation proven via template PDF export + verify (02/template_integrity_audit); bidirectional *link* metadata not modeled beyond same-DID pairing. Phase 3 (ADR-10) partially addresses the machine-readable half for clauses specifically: typed clause instances (dcs:PaymentClause etc.) are generated from and validated against the same Semantic Hub SHACL shapes (GET /semantic/clauses, 23/semantic_hub "The clause catalog is seeded..."), so a clause's authored form and its enforcement share one source of truth — TestAuditContractContentValidatesTypedClauses proves server-side enforcement; the frontend palette (TypedClausePalette.vue) is manual/UI-review evidence, consistent with the existing DCS-IR-TR partial-row convention. Now fully covered: every machine rule must carry dcs:prose referencing its human-readable clause (Go gate + Odrl*ProseShape SHACL, 18 structure scenario), and e2e/template-typed-clause.spec.ts proves the UI end: a hub-palette typed clause becomes a prose-backed rule whose dcs:prose dereferences to a document block. |
 | DCS-FR-TR-05 | Template Version Control | ✅ Covered | Template versions/approvals tracked; template audit-log scenario (02, @DCS-FR-TR-21/TR-05). retrieve_history_by_id exists. |
 | DCS-FR-TR-06 | Role-Based Access Control for Template Repository | ✅ Covered | RBAC negative scenarios: 02/create, 02/update, 02/archive, 02/workflow 'Unauthorized role cannot …' + 01 pack 401 sweep. |
-| DCS-FR-TR-07 | Compliance & Legal Validation | 🟡 Partial | Approval gate before usability proven (02/template_workflow + contract create requires REGISTERED); 08/composition-aware-template-audit proves root-plus-immediate-snapshot evaluation without hiding malformed root or component content. Domain-specific regulatory rule packs beyond ODRL/structural validation are not modeled. |
-| DCS-FR-TR-08 | ) | ✅ Covered | SRS formatting artifact whose substance is exercised through the real management UI in 24/template-management, including the verified `APPROVED → REGISTERED → PUBLISHED` component lifecycle, in addition to 02/template_workflow and template_identity. |
+| DCS-FR-TR-07 | Compliance & Legal Validation | 🟡 Partial | Approval gate before usability proven (02/template_workflow + contract create requires REGISTERED). `08/composition_aware_template_audit` proves that content-policy checks combine the root with immediate persisted component snapshots for contract data, clause bindings, policies, domain fields, constraints, and required fields; malformed content remains source-identifiable. Domain-specific regulatory rule packs beyond ODRL/structural validation are not modeled. |
+| DCS-FR-TR-08 | ) | 📋 Not BDD-verifiable | SRS formatting artifact: bracketed ID sits inside the §3.1.1 Template Builder UI narrative (review-task generation + unique ID). Substance covered by 02/template_workflow (submit→review task) and 02/template_identity (unique DID). |
 | DCS-FR-TR-09 | Template Provenance and Versioning | ✅ Covered | Registration seals each version's provenance as a signed W3C VC (JSON-LD, ecdsa-rdfc-2019): creator/reviewer/approver/registrar claims, content hash, previous-credential linkage; served by GET /template/provenance/{did} (02/template_provenance). Provenance also travels in template bundle export (20). |
 | DCS-FR-TR-10 | Searchable Metadata & Categorization | ✅ Covered | 02/search_templates: by name, description, details; RBAC negative. |
 | DCS-FR-TR-11 | Template UUID / DID Assignment | ✅ Covered | 02/template_identity: UUID on creation, retrieve by DID. |
@@ -80,15 +77,15 @@ JUnit evidence.
 | DCS-FR-TR-17 | Template Retirement and Deprecation | ✅ Covered | 02/template_archive 'Deprecate an active template' + cannot-delete-deprecated guard. |
 | DCS-FR-TR-18 | Template Deletion | ✅ Covered | 02/template_archive delete scenarios incl. RBAC negative. |
 | DCS-FR-TR-19 | Template Retrieval | ✅ Covered | 02/generate_contract + template_identity retrieve-by-DID (/template/retrieve). |
-| DCS-FR-TR-20 | Template Compliance and Integrity Verification | ✅ Covered | /template/verify scenario (02); 08/composition-aware-template-audit proves reproducible policy evaluation of persisted immediate snapshots, prefixed finding paths, and unchanged standalone-component rules. |
-| DCS-FR-TR-21 | Audit Logs for Template Changes | ✅ Covered | Template audit-log scenario (02, tagged @DCS-FR-TR-21); 08/browser-safe-api-timestamps and 24/browser-safe-template-timestamps prove RFC3339 wire timestamps and valid browser rendering. |
+| DCS-FR-TR-20 | Template Compliance and Integrity Verification | ✅ Covered | `/template/verify` scenario (02, tagged `@DCS-FR-TR-20`) plus `08/composition_aware_template_audit`: reproducible, read-only evaluation of persisted immediate snapshots without DID re-resolution or recursion; component findings retain their snapshot-prefixed technical path; standalone `COMPONENT` audits retain component-specific rules. |
+| DCS-FR-TR-21 | Audit Logs for Template Changes | ✅ Covered | Template audit-log scenario (02, tagged @DCS-FR-TR-21). |
 | DCS-FR-TR-22 | Notification System for Template Updates | ✅ Covered | Webhook platform (/orce): subscribable template.updated/template.registered events fan out to registered receivers with the template DID in the payload; delivery log with acknowledgement (GET /deliveries). Verified end-to-end against the ORCE monitoring flow (02/template_update_notifications). |
-| DCS-FR-TR-23 | Structural Dependency Mapping The Template Repository MUST allow Te… | ✅ Covered | 20 hierarchy dependency enforcement + export refusal on missing component; 24/template-repository UI selects REGISTERED/PUBLISHED components into a new draft and persists their authoritative snapshots; 08/composition-aware-template-audit proves those immediate snapshots form a read-only, non-recursive audit view. |
+| DCS-FR-TR-23 | Structural Dependency Mapping The Template Repository MUST allow Te… | ✅ Covered | 20 hierarchy dependency enforcement + export refusal on missing component (tagged `@DCS-FR-TR-26`/`@DCS-FR-PACM-06`); the persisted direct snapshots form the immutable, non-recursive content boundary proven by `08/composition_aware_template_audit`. |
 | DCS-FR-TR-24 | Structural Export in Unified Format | ✅ Covered | 20 template bundle export (tagged @DCS-FR-TR-24). |
-| DCS-FR-TR-25 | Multi-Contract Template Builder | ✅ Covered | 24/template-repository UI offers REGISTERED/PUBLISHED components by name and DID before the parent draft exists, loads the complete snapshot, and renders the persisted hierarchy; backing invariants remain covered by 20 hierarchy/bundle. |
-| DCS-FR-TR-26 | Logical Validation of Structural Dependencies | ✅ Covered | 24/template-repository UI proves atomic create-time revalidation when a selected component becomes unavailable plus rejection of missing, malformed, and cyclic direct references; 20 still covers export refusal for missing dependencies. |
+| DCS-FR-TR-25 | Multi-Contract Template Builder | ✅ Covered | Visual builder is a frontend concern (HTTP-only harness; see the 22 UI-gap precedent). Backing APIs covered via 20 hierarchy/bundle + 02 CRUD. UI now asserted: e2e/template-typed-clause.spec.ts drives the visual builder end-to-end (type selection, block palette, shacl-form, save) against the live stack. |
+| DCS-FR-TR-26 | Logical Validation of Structural Dependencies | ✅ Covered | 20 'Export is refused with a findings list when a referenced component is missing' (tagged). |
 | DCS-FR-TR-27 | Contract Type Classification | 🟡 Partial | Multi/single-party structure expressed via responsible-party DIDs and hierarchy; a dedicated contract-type classification facet for filtering is not modeled. |
-| DCS-FR-TR-28 | Template Management Dashboard (see Section 3.1) | ✅ Covered | 24/template-management proves search, lifecycle actions, and audit in the browser, including register and publish actions for component templates. |
+| DCS-FR-TR-28 | Template Management Dashboard (see Section 3.1) | ✅ Covered | Dashboard UI; backing APIs (search/status/workflow) covered by 02 pack. UI now asserted: e2e/dashboards.spec.ts (template dashboard lists registered templates). |
 
 ## 3.2.2 Contract Workflow Engine (DCS-FR-CWE-…)
 
@@ -98,7 +95,7 @@ JUnit evidence.
 | DCS-FR-CWE-02 | Hierarchical Contract Structures | ✅ Covered | 20 hierarchy scenarios: single-parent model, cycle rejection, frame-contract child listing. |
 | DCS-FR-CWE-03 | Contract Assembling | ✅ Covered | 'Assemble contract from reusable clauses' (03/contract_creation). |
 | DCS-FR-CWE-04 | Machine-Readable & Human-Readable Contract Synchronization | ✅ Covered | 03/format_review MR/HR hash scenarios + 08 verify endpoint + 22 dual-hash binding scenario (all tagged @DCS-FR-CWE-04). |
-| DCS-FR-CWE-05 | Secure Human-Readable Contract Viewer | ✅ Covered | 24/signature-validation proves the immutable human-readable view and authoritative integrity result in the browser; tamper seams remain covered by 03/format_review. |
+| DCS-FR-CWE-05 | Secure Human-Readable Contract Viewer | ✅ Covered | Tamper-evidence of the served HR view proven via verify + tamper seams (03/format_review). Viewer UI itself out of harness scope. Viewer UI now asserted: e2e/dashboards.spec.ts renders the human-readable document from the machine-readable JSON-LD (Contract Content tab). |
 | DCS-FR-CWE-06 | Event-Driven Contract Execution | ✅ Covered | 05 auto-deployment on signing completion; 15 re-approval flow (tagged @DCS-FR-CWE-06); events logged (08). |
 | DCS-FR-CWE-07 | Role-Based Access Control | ✅ Covered | Role-guard negatives across 03/05/07/08/22; credential-based roles via OIDC (01). |
 | DCS-FR-CWE-08 | Version Control | ✅ Covered | Version history via /contract/retrieve_history_by_id — 'Track version history during negotiation' (03). |
@@ -110,17 +107,17 @@ JUnit evidence.
 | DCS-FR-CWE-14 | Contract Submission for Review | ✅ Covered | 03 state-machine submit→review→approve chain; 'Submit contract for review after negotiation'. |
 | DCS-FR-CWE-15 | Contract Review and Approval | ✅ Covered | 03/contract_approval approve/reject/initiate; partial-quorum enforcement proven with two DISTINCT approver peers in 17/two_instance's approval-quorum scenario: one approval leaves the contract REVIEWED, the second flips it APPROVED with both peer decisions recorded. |
 | DCS-FR-CWE-16 | Contract Initiation | ✅ Covered | 'Contract transitions to signing phase upon approval' (03); sign-after-approve proven in 22. |
-| DCS-FR-CWE-17 | Contract Review | ✅ Covered | 24/contract-negotiation proves persisted redlines and browser-visible version comparison; structural validation remains covered by 20. |
-| DCS-FR-CWE-18 | Contract Negotiation | ✅ Covered | 03/contract_negotiation: comments, redlines (green); decision rounds + negotiation log covered. Retrieved negotiation timestamps are RFC3339-proven in 08/browser-safe-api-timestamps. |
+| DCS-FR-CWE-17 | Contract Review | 🟡 Partial | Redlining + version compare via history endpoint (03); automated missing-field checks via structural validation (20 hierarchy rejections). Side-by-side diff is a UI concern. |
+| DCS-FR-CWE-18 | Contract Negotiation | ✅ Covered | 03/contract_negotiation: comments, redlines (green); decision rounds + negotiation log covered. |
 | DCS-FR-CWE-19 | Contract Signing | ✅ Covered | 22 end-to-end AES signing with ceremony, status tracked (ceremony + e2e scenarios). |
 | DCS-FR-CWE-20 | Store Contract in Archive | ✅ Covered | 05 archive-at-SIGNED scenario (tagged @DCS-FR-CWE-20). |
 | DCS-FR-CWE-21 | Retrieve Contract from Archive | ✅ Covered | 07 archive retrieve/search with RBAC. |
 | DCS-FR-CWE-22 | Contract Renewal Management | ✅ Covered | Renewal workflow endpoint (see CWE-11). |
 | DCS-FR-CWE-23 | Contract Termination | ✅ Covered | 06 termination via API, removed from active flows (state TERMINATED). |
-| DCS-FR-CWE-24 | Contract Management Dashboard | ✅ Covered | 24/contract-dashboard proves filtering, drill-down, history, hierarchy, and lifecycle details in the browser. |
-| DCS-FR-CWE-25 | Contract Review and Approval Interface | ✅ Covered | 24/contract-governance proves review findings plus reasoned approve/reject actions in the browser. |
-| DCS-FR-CWE-26 | Contract Signing Interface | ✅ Covered | 24/signing completes the declared signing task through the real browser OID4VP ceremony; no skipped UI precedent remains. |
-| DCS-FR-CWE-27 | Contract Tracking and Status Overview | ✅ Covered | 03 state-machine state-filtered search; status history via retrieve_history_by_id (approval routing scenario); contract-audit and negotiation wire timestamps are RFC3339-proven in 08/browser-safe-api-timestamps. |
+| DCS-FR-CWE-24 | Contract Management Dashboard | ✅ Covered | Dashboard UI; backing search/status APIs covered (03 state-filtered search, 07). UI now asserted: e2e/dashboards.spec.ts (contract dashboard lists contracts with lifecycle state). |
+| DCS-FR-CWE-25 | Contract Review and Approval Interface | 🟡 Partial | Approval API surface covered (03/contract_approval); dedicated reviewer UI out of harness scope. |
+| DCS-FR-CWE-26 | Contract Signing Interface | 🟡 Partial | Signing API + ceremony covered (22); browser signing UI documented out-of-scope (22 @skip UI scenario). |
+| DCS-FR-CWE-27 | Contract Tracking and Status Overview | ✅ Covered | 03 state-machine state-filtered search; status history via retrieve_history_by_id (approval routing scenario). |
 | DCS-FR-CWE-28 | Automated Contract Interaction via API | ✅ Covered | 12/contract_lifecycle_via_api: full lifecycle + queryable history via API. |
 | DCS-FR-CWE-29 | Multi-Contract Visualization | ✅ Covered | 20 parent_did search filter + frame-contract detail (tagged @DCS-FR-CWE-29). |
 | DCS-FR-CWE-30 | Contract Package Bundling | ✅ Covered | 20 bundle-export scenarios: ZIP members, parent-chain refs, manifest hashes (tagged @DCS-FR-CWE-30). |
@@ -137,8 +134,8 @@ JUnit evidence.
 | DCS-FR-SM-05 | Integration with Signing Identity and PoA Verifiable Credentials | ✅ Covered | W3C-compliant SD-JWT VC + KB-JWT presented, verified, embedded verbatim under the PAdES signature (22 verbatim-embedding + verify cross-check scenarios). |
 | DCS-FR-SM-06 | Wallet for Identity, PoA Credential Management, and Signing | 🟡 Partial | Wallet protocol surface (OID4VP presentation, headless) proven (22 webhook + headless-ceremony scenarios); a real end-user wallet app is outside the harness. |
 | DCS-FR-SM-07 | Multi-Signature and Role-Based Signing Flows | ✅ Covered | 22/multi_signer: one ceremony + one sequential PAdES signature per declared field, all-ceremonies-before-first-signature evidence embedding, ceremony-gate and double-signing negatives, deploy gate until every field is signed; role gating via 22 ceremony role-denial. |
-| DCS-FR-SM-08 | Persisted Contract Signing Summary with Verifiable Credential and P… | ✅ Covered | 22 ContractSigningSummaryCredential issued + embedded; PDF/A-3 attachment under signature (tagged @DCS-FR-SM-08). |
-| DCS-FR-SM-09 | Secure Human-Readable Contract Viewer | ✅ Covered | 24/signature-validation proves the immutable browser view and authoritative signature result. |
+| DCS-FR-SM-08 | Persisted Contract Signing Summary with Verifiable Credential and P… | ✅ Covered | 22 ContractSigningSummaryCredential issued + embedded; PDF/A-3 attachment under signature (tagged @DCS-FR-SM-08). Phase 4 (ADR-9): the credential now also carries schema_version/validation_report_hash — the Semantic Hub SHACL version the contract validated against at signing time and a stable hash of the findings (validation.SHACLEvidence) — and signature/validate re-runs pinned-version validation and cross-checks the hash for drift (crossCheckSHACLDrift, backend/internal/signingmanagement/query/validate.go), unit-tested via TestSHACLEvidenceIsStableAndDetectsDrift. |
+| DCS-FR-SM-09 | Secure Human-Readable Contract Viewer | ✅ Covered | Same as CWE-05: tamper-evidence of served content proven; viewer UI out of harness. Viewer UI now asserted alongside CWE-05: e2e/dashboards.spec.ts. |
 | DCS-FR-SM-10 | Proof of Contract Execution | ✅ Covered | 05 TSA-timestamped execution receipt appended to archive (tagged @DCS-FR-SM-10). |
 | DCS-FR-SM-11 | Linked Machine-Readable and Human-Readable Signatures | ✅ Covered | 22 signature record binds PDF hash + JSON-LD content hash. |
 | DCS-FR-SM-12 | Contract Deployment Trigger | ✅ Covered | 05 deploy-trigger scenarios incl. auto-trigger on signing (tagged @DCS-FR-SM-12). |
@@ -148,14 +145,14 @@ JUnit evidence.
 | DCS-FR-SM-16 | Apply Digital Signature (via Cloud PCM or OCM Signer API Endpoint) | ✅ Covered | 22 real PAdES via HSM path (tagged @DCS-FR-SM-16). |
 | DCS-FR-SM-17 | Multi-Signer Support | ✅ Covered | 22/multi_signer end-to-end: two DISTINCT signer identities recorded independently per field (signature view assertion), sequential application on signed bytes (mechanics also unit-proven by pdf-core TestPAdESSecondSignatureProbe); parallel signing stays a documented change request. |
 | DCS-FR-SM-18 | Signature Validation | ✅ Covered | Signature validate endpoint scenario (04/signature_validation, tagged @DCS-FR-SM-18). |
-| DCS-FR-SM-19 | Audit Log for Signatures | ✅ Covered | Signature audit-log scenario (04, tagged @DCS-FR-SM-19); RFC3339 wire timestamps are proven in 08/browser-safe-api-timestamps. |
+| DCS-FR-SM-19 | Audit Log for Signatures | ✅ Covered | Signature audit-log scenario (04, tagged @DCS-FR-SM-19). |
 | DCS-FR-SM-20 | Signature Revocation | ✅ Covered | 15 revocation → REVOKED + re-approval path (tagged @DCS-FR-SM-20). |
 | DCS-FR-SM-21 | Signature Compliance Verification | ✅ Covered | Signature compliance endpoint scenario (04, tagged @DCS-FR-SM-21). |
-| DCS-FR-SM-22 | Signature Dashboard for Contract Signers | ✅ Covered | 24/signing renders server-declared signing tasks, fields, status, and available actions. |
-| DCS-FR-SM-23 | Signing Interface | ✅ Covered | 24/signing completes a real browser-driven OID4VP ceremony and signature action without token/storage injection. Wallet-device biometrics remain outside the DCS boundary. |
+| DCS-FR-SM-22 | Signature Dashboard for Contract Signers | ✅ Covered | Signer dashboard UI; backing status API covered (22 status polling). UI now asserted: e2e/dashboards.spec.ts (signing dashboard renders for the signer role). |
+| DCS-FR-SM-23 | Signing Interface | 📋 Not BDD-verifiable | Browser signing UI + biometrics: documented out of harness (22 @skip UI scenario records the decision). |
 | DCS-FR-SM-24 | Signature Status Tracking | ✅ Covered | 22 ceremony-status-progression scenario. |
 | DCS-FR-SM-25 | Automated Signature Processing API | ✅ Covered | 22 fully headless API-driven ceremony (tagged @FR-SM-25). |
-| DCS-FR-SM-26 | Signature Compliance Viewer | ✅ Covered | 24/signature-compliance proves trust/proof/timestamp results, compliance actions, revocation, audit report, and read-only role behavior in the Vue viewer. |
+| DCS-FR-SM-26 | Signature Compliance Viewer | 🟡 Partial | GET /signature/view serves the viewer's full data set — per-signature signer identity, field, credential class, status, timestamps, container format + integrity findings (04 view scenarios incl. RBAC negative); the Vue viewer itself stays out of the HTTP harness. |
 | DCS-FR-SM-27 | Support for PDF/A Format | ✅ Covered | 04/signature_validation asserts PDF/A-3 identification on the exported SIGNED PDF bytes (pdfaid:part=3, conformance=A, ISO 19005-3) plus the contract.jsonld associated file (AFRelationship /Source); full veraPDF-class validation remains an external check. |
 
 ## 3.2.4 Contract Storage & Archive (DCS-FR-CSA-…)
@@ -182,10 +179,10 @@ JUnit evidence.
 | DCS-FR-CSA-18 | Audit Log for Contract Storage and Retrieval | ✅ Covered | 20 export RBAC + audit-entry scenarios (tagged @DCS-FR-CSA-18); archive audit endpoint covered (07). |
 | DCS-FR-CSA-19 | Compliance Verification for Archived Contracts | 🟡 Partial | Audit entries retrievable per component (07/08); automated compliance flagging of archived entries beyond workflow gates not modeled. |
 | DCS-FR-CSA-20 | Automated Contract Monitoring and Alerts | 🟡 Partial | pac/monitor continuous monitoring (08); configurable UI/email alert delivery not modeled — deviation note. |
-| DCS-FR-CSA-21 | Contract Archive Dashboard | 🟡 Partial | 24/archive-dashboard proves real recent, expiring, compliance, search, and export data. Saved queries and storage-volume semantics remain `ui-gap` until an authoritative product contract exists. |
-| DCS-FR-CSA-22 | Contract Search Interface | ✅ Covered | 24/archive-search proves filter, annotation, drill-down, real-result export, and role scoping in the browser. |
-| DCS-FR-CSA-23 | Contract Expiration and Renewal Management UI | 🟡 Partial | 24/contract-renewal proves one linked renewal action. Bulk renewal and notification management remain `ui-gap` until authoritative APIs exist. |
-| DCS-FR-CSA-24 | Contract Compliance and Audit Viewer | ✅ Covered | 24/audit-report proves scoped server audit/report results and export in the browser. |
+| DCS-FR-CSA-21 | Contract Archive Dashboard | 📋 Not BDD-verifiable | Dashboard UI; backing stats/search APIs covered (07). |
+| DCS-FR-CSA-22 | Contract Search Interface | 📋 Not BDD-verifiable | Search UI; backing API covered (07 archive search). |
+| DCS-FR-CSA-23 | Contract Expiration and Renewal Management UI | 📋 Not BDD-verifiable | Expiry/renewal UI; backing expiry + renewal APIs covered (19, 06). |
+| DCS-FR-CSA-24 | Contract Compliance and Audit Viewer | ✅ Covered | Audit viewer UI; backing pac/report + archive audit APIs covered (08, 07). UI now asserted: e2e/dashboards.spec.ts (audit workstation renders scoped audits for the auditor). |
 | DCS-FR-CSA-25 | Contract Processing API | ✅ Covered | Archive store/retrieve/search/delete APIs with authz + audit (07 pack, 20 export audit-log). |
 | DCS-FR-CSA-26 | Archive Multi-Party Contract Component Assignments | ✅ Covered | 20 sibling isolation across instances + party-scoped bundle content (tagged @DCS-FR-CSA-26). |
 
@@ -220,7 +217,7 @@ JUnit evidence.
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-SI-01 | Template Catalogue Integration | ✅ Covered | 02/template_catalogue proves publish, list, detail, and search through the adapter; component type is preserved as `COMPONENT` across the catalogue roundtrip. |
+| DCS-IR-SI-01 | Template Catalogue Integration | ✅ Covered | Template catalogue endpoints scenarios (02/template_catalogue, tagged @DCS-IR-SI-01). |
 | DCS-IR-SI-02 | Workflow Orchestration (Node-RED) Integration | ✅ Covered | 05 shipped ORCE contract-target flow round-trip (tagged @DCS-IR-SI-02). |
 | DCS-IR-SI-03 | Platform Authentication & Authorization Integration | ✅ Covered | 01 pack — all components enforce OAuth2/OIDC. |
 | DCS-IR-SI-04 | Wallet & TSP Signing Integration | 🟡 Partial | OID4VP + remote-signing seam proven via headless ceremony + HSM signing (22); real TSP integration out of hermetic scope. |
@@ -237,65 +234,65 @@ JUnit evidence.
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-TR-01 | Template Builder MUST allow Template Creator to create new contract… | ✅ Covered | 24/template-create covers create/edit/submit; 24/template-repository UI proves pre-persistence component selection, complete authoritative snapshot persistence, hierarchy rendering after reopen, and visible atomic-validation errors. |
-| DCS-IR-TR-02 | Template Builder MUST allow searching and retrieving existing templ… | ✅ Covered | 24/template-create: search and retrieve through the browser. |
-| DCS-IR-TR-03 | Template Review MUST allow Reviewers to retrieve, verify, update, a… | ✅ Covered | 24/template-review: reviewer retrieves, verifies, updates, and submits. |
-| DCS-IR-TR-04 | Template Review MUST support forwarding a verified template to appr… | ✅ Covered | 24/template-review: verified decision and return path with comments. |
-| DCS-IR-TR-05 | Template Approval MUST allow Approvers to retrieve, approve, reject… | ✅ Covered | 24/template-approval: reasoned rejection, resubmission, and approval. |
-| DCS-IR-TR-06 | Template Approval MUST ensure that only validated templates enter t… | ✅ Covered | 24/template-approval plus backend registration gate prove only validated assets progress. |
-| DCS-IR-TR-07 | Template Management Dashboard MUST allow Managers to register, arch… | ✅ Covered | 24/template-management: register, publish, update, search, audit, and deprecate; component templates use the same register/publish actions. |
-| DCS-IR-TR-08 | Template Management Dashboard MUST provide lifecycle oversight of a… | ✅ Covered | 24/template-management provides browser lifecycle oversight for contract and component templates; 24/browser-safe-template-timestamps proves lifecycle dates render without `Invalid Date`. |
+| DCS-IR-TR-01 | Template Builder MUST allow Template Creator to create new contract… | ✅ Covered | API: 02 create/update template. Builder UI now asserted: e2e/template-typed-clause.spec.ts creates a brand-new template through the visual builder (/ui/templates/new → hub typed-clause palette → shacl-form → save) and verifies the emitted /template/create envelope. |
+| DCS-IR-TR-02 | Template Builder MUST allow searching and retrieving existing templ… | 🟡 Partial | API: 02 search/retrieve. Template listing UI asserted (e2e/dashboards.spec.ts); in-UI search interaction unasserted. |
+| DCS-IR-TR-03 | Template Review MUST allow Reviewers to retrieve, verify, update, a… | 🟡 Partial | API: 02 workflow review steps. UI out of harness. |
+| DCS-IR-TR-04 | Template Review MUST support forwarding a verified template to appr… | 🟡 Partial | API: 02 approve/reject/resubmit transitions. UI out of harness. |
+| DCS-IR-TR-05 | Template Approval MUST allow Approvers to retrieve, approve, reject… | 🟡 Partial | API: 02 approval set. UI out of harness. |
+| DCS-IR-TR-06 | Template Approval MUST ensure that only validated templates enter t… | 🟡 Partial | API: only REGISTERED templates usable in contract create (03 steps). UI out of harness. |
+| DCS-IR-TR-07 | Template Management Dashboard MUST allow Managers to register, arch… | 🟡 Partial | API: 02 register/archive/update/search + audit. UI out of harness. |
+| DCS-IR-TR-08 | Template Management Dashboard MUST provide lifecycle oversight of a… | 🟡 Partial | API: lifecycle oversight via search/status/history. UI out of harness. |
 
 ## 3.1.1 UI — Contract Workflow (DCS-IR-CWE-…)
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-CWE-01 | Contract Creation UI MUST allow Contract Creators to create and sub… | ✅ Covered | 24/contract-create creates from an approved template and submits in the browser. The focused regression run passed 1 Playwright scenario with 23 steps. |
-| DCS-IR-CWE-02 | Contract Creation UI MUST enable population of contract data, inclu… | 🟡 Partial | Create-from-template and submit remain browser-proven under DCS-IR-CWE-01. Model-based population of parties, assets, policies, and evidence is not specified or implemented and remains an explicit `ui-gap` pending an authoritative product model, cardinalities, validation rules, and acceptance criteria. |
-| DCS-IR-CWE-03 | Contract Negotiation UI MUST allow parties to exchange responses, r… | ✅ Covered | 24/contract-negotiation proves browser comments and redlines. |
-| DCS-IR-CWE-04 | Contract Negotiation UI MUST support comparison of contract version… | ✅ Covered | 24/contract-negotiation proves the browser-visible version diff. |
-| DCS-IR-CWE-05 | Contract Review UI MUST allow Reviewers to retrieve, inspect, and v… | ✅ Covered | 24/contract-governance exercises review retrieval and inspection. |
-| DCS-IR-CWE-06 | Contract Review UI MUST allow Reviewers to respond with findings, r… | ✅ Covered | 24/contract-governance records review findings and routes the decision. |
-| DCS-IR-CWE-07 | Contract Review UI MUST provide search capabilities to locate contr… | ✅ Covered | 24/contract-governance and contract-dashboard locate contracts through stable browser controls. |
-| DCS-IR-CWE-08 | Contract Approval UI MUST allow Approvers to retrieve contracts in … | ✅ Covered | 24/contract-governance retrieves the reviewed contract for its approver. |
-| DCS-IR-CWE-09 | Contract Approval UI MUST allow Approvers to approve, reject (with … | ✅ Covered | 24/contract-governance proves approve and reasoned reject in the browser. |
-| DCS-IR-CWE-10 | Contract Approval UI MUST ensure approved contracts are forwarded i… | ✅ Covered | 24/contract-governance forwards approval into signing; catalogue registration remains an explicit retryable product action. |
-| DCS-IR-CWE-11 | Contract Management Dashboard UI MUST allow Managers to retrieve an… | ✅ Covered | 24/contract-dashboard proves filtered retrieval across lifecycle states. |
-| DCS-IR-CWE-12 | Contract Management Dashboard UI MUST allow Managers to store evide… | ✅ Covered | 24/contract-evidence proves typed evidence, reasoned termination, and audit in the browser. |
-| DCS-IR-CWE-13 | Contract Management Dashboard UI MUST provide lifecycle monitoring … | 🟡 Partial | 24/contract-kpi proves lifecycle states, KPIs, milestones, violations, and timestamps. The undefined "XFSC lifecycle/log token usage" phrase is `decision-blocked`. |
+| DCS-IR-CWE-01 | Contract Creation UI MUST allow Contract Creators to create and sub… | 🟡 Partial | API: 03 create from approved template. UI out of harness. |
+| DCS-IR-CWE-02 | Contract Creation UI MUST enable population of contract data, inclu… | ✅ Covered | API: parties/policies/evidence populated at create (03, 18, 05 evidence). UI now asserted: e2e/contract-fill.spec.ts fills a placeholder through the edit UI and the emitted document carries the forField-bound typed value in an odrl:Offer, with no editor-internal keys leaking. |
+| DCS-IR-CWE-03 | Contract Negotiation UI MUST allow parties to exchange responses, r… | 🟡 Partial | API: negotiation responses/redlines/comments (03). UI out of harness. |
+| DCS-IR-CWE-04 | Contract Negotiation UI MUST support comparison of contract version… | 🟡 Partial | API: version history compare (03). UI out of harness. |
+| DCS-IR-CWE-05 | Contract Review UI MUST allow Reviewers to retrieve, inspect, and v… | ✅ Covered | 03 state-machine invalid-transition + approval-chain scenarios (tagged @DCS-IR-CWE-05): review path enforced. |
+| DCS-IR-CWE-06 | Contract Review UI MUST allow Reviewers to respond with findings, r… | ✅ Covered | Review responses with findings/comments (tagged @DCS-IR-CWE-06 on the state-machine scenarios; approval comments in 03/contract_approval). |
+| DCS-IR-CWE-07 | Contract Review UI MUST provide search capabilities to locate contr… | 🟡 Partial | API: contract search by state/metadata/parent (03 state-filtered search, 20 parent_did filter). UI out of harness. |
+| DCS-IR-CWE-08 | Contract Approval UI MUST allow Approvers to retrieve contracts in … | 🟡 Partial | API: approvers retrieve reviewed contracts (03/contract_approval). UI out of harness. |
+| DCS-IR-CWE-09 | Contract Approval UI MUST allow Approvers to approve, reject (with … | ✅ Covered | Approve / reject-with-reason / resubmit proven (03/contract_approval + state machine). |
+| DCS-IR-CWE-10 | Contract Approval UI MUST ensure approved contracts are forwarded i… | ✅ Covered | Approved contracts proceed to signing (03 approval-transition + 22, tagged @DCS-IR-CWE-10). Catalogue forwarding is a deliberate MANUAL user action by architectural decision: catalogue registration can fail, be re-run, or be unconfigured — an explicit action models that honestly (same rationale as template publication, 02/template_catalogue). |
+| DCS-IR-CWE-11 | Contract Management Dashboard UI MUST allow Managers to retrieve an… | ✅ Covered | API: lifecycle-wide search (03 state-filtered search). Dashboard UI now asserted: e2e/dashboards.spec.ts (contract dashboard lists contracts with their lifecycle state for the Contract Manager role). |
+| DCS-IR-CWE-12 | Contract Management Dashboard UI MUST allow Managers to store evide… | 🟡 Partial | API: evidence store (05 TSA receipt), terminate (06), audits (08). UI out of harness. |
+| DCS-IR-CWE-13 | Contract Management Dashboard UI MUST provide lifecycle monitoring … | 🟡 Partial | API: lifecycle monitoring via states/history/KPIs (05). UI out of harness. |
 
 ## 3.1.1 UI — Storage & Archive (DCS-IR-CSA-…)
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-CSA-01 | Archive Manager Dashboard UI MUST allow Archive Managers to retriev… | ✅ Covered | 24/archive-search proves browser retrieval, filters, drill-down, and export. |
-| DCS-IR-CSA-02 | Archive Manager Dashboard UI MUST allow storing new contracts and e… | ✅ Covered | 24/archive-evidence displays the server-generated archive record and evidence. |
-| DCS-IR-CSA-03 | Archive Manager Dashboard UI MUST allow terminating or deleting arc… | ✅ Covered | 24/archive-lifecycle proves reasoned termination and policy-guarded deletion. |
-| DCS-IR-CSA-04 | Archive Manager Dashboard UI MUST allow running audits on archive o… | ✅ Covered | 24/archive-lifecycle runs integrity and operation audit through the UI. |
-| DCS-IR-CSA-05 | Archive Access UI MUST allow Observers to retrieve and search archi… | ✅ Covered | 24/archive-search proves Observer retrieval and search. |
-| DCS-IR-CSA-06 | Archive Access UI MUST ensure that read-only users cannot modify, t… | ✅ Covered | 24/archive-search proves read-only controls are absent and server authorization remains enforced. |
+| DCS-IR-CSA-01 | Archive Manager Dashboard UI MUST allow Archive Managers to retriev… | ✅ Covered | 07 retrieve+search archive scenarios (tagged @DCS-IR-CSA-01). |
+| DCS-IR-CSA-02 | Archive Manager Dashboard UI MUST allow storing new contracts and e… | ✅ Covered | Evidence store into archive (05 TSA receipt); signed contracts auto-stored (05 archive-at-SIGNED). |
+| DCS-IR-CSA-03 | Archive Manager Dashboard UI MUST allow terminating or deleting arc… | ✅ Covered | Terminate covered (06); archive delete scenarios (07, tagged @DCS-FR-CSA-17). |
+| DCS-IR-CSA-04 | Archive Manager Dashboard UI MUST allow running audits on archive o… | ✅ Covered | Archive audit endpoint covered (07, tagged @DCS-IR-CSA-04). |
+| DCS-IR-CSA-05 | Archive Access UI MUST allow Observers to retrieve and search archi… | ✅ Covered | 07 least-privilege access enforcement (tagged @DCS-IR-CSA-05). |
+| DCS-IR-CSA-06 | Archive Access UI MUST ensure that read-only users cannot modify, t… | ✅ Covered | 07 read-only Observer scenario: Contract Observer retrieves the archive (200) yet delete is denied — matches the design scoping (retrieve/search: Archive Manager+Observer; store/delete: Archive Manager only). |
 
 ## 3.1.1 UI — Signature Management (DCS-IR-SM-…)
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-SM-01 | Secure Contract Viewer UI MUST allow Signers and Managers to retrie… | ✅ Covered | 24/signing retrieves an approved contract and its declared tasks in the secure viewer. |
-| DCS-IR-SM-02 | Secure Contract Viewer UI MUST allow verification of contract integ… | ✅ Covered | 24/signature-validation displays authoritative integrity and envelope results. |
-| DCS-IR-SM-03 | Secure Contract Viewer UI MUST allow applying signatures with appro… | ✅ Covered | 24/signing applies the signature after a real OID4VP credential ceremony. |
-| DCS-IR-SM-04 | Secure Contract Viewer UI MUST allow validation of applied signatur… | ✅ Covered | 24/signature-validation validates the applied signature through the browser. |
-| DCS-IR-SM-05 | Signature Compliance Viewer UI MUST allow compliance users to valid… | ✅ Covered | 24/signature-compliance displays server-derived trust-anchor, proof, and timestamp findings. |
-| DCS-IR-SM-06 | Signature Compliance Viewer UI MUST allow revocation of signatures … | ✅ Covered | 24/signature-compliance proves authorized revocation and read-only observer behavior. |
-| DCS-IR-SM-07 | Signature Compliance Viewer UI MUST allow running compliance checks… | ✅ Covered | 24/signature-compliance runs the authoritative compliance check. |
-| DCS-IR-SM-08 | Signature Compliance Viewer UI MUST allow generating audit reports … | ✅ Covered | 24/signature-compliance generates and displays the server audit report. |
+| DCS-IR-SM-01 | Secure Contract Viewer UI MUST allow Signers and Managers to retrie… | ✅ Covered | API: approved-contract retrieval for signing (22). Viewer UI now asserted: e2e/dashboards.spec.ts renders the human-readable document from the machine-readable JSON-LD in the contract view (Contract Content tab). |
+| DCS-IR-SM-02 | Secure Contract Viewer UI MUST allow verification of contract integ… | ✅ Covered | Integrity/envelope verification via verify endpoints (08, 19, 22 verify cross-check). |
+| DCS-IR-SM-03 | Secure Contract Viewer UI MUST allow applying signatures with appro… | ✅ Covered | Signature application with verified credentials (22 ceremony-gate + webhook/PID scenarios). |
+| DCS-IR-SM-04 | Secure Contract Viewer UI MUST allow validation of applied signatur… | ✅ Covered | Applied-signature validation endpoint scenario (04, tagged @DCS-FR-SM-18). |
+| DCS-IR-SM-05 | Signature Compliance Viewer UI MUST allow compliance users to valid… | 🟡 Partial | Compliance users (Compliance Officer/Auditor scopes) read GET /signature/view (04) with cryptographic integrity findings from the shared validation machinery; trust anchors/proofs/timestamps validated in verify paths (21, 22). UI out of harness. |
+| DCS-IR-SM-06 | Signature Compliance Viewer UI MUST allow revocation of signatures … | ✅ Covered | 15 signature revocation (tagged @DCS-FR-SM-20). |
+| DCS-IR-SM-07 | Signature Compliance Viewer UI MUST allow running compliance checks… | ✅ Covered | Compliance-check endpoint scenario (04, tagged @DCS-FR-SM-21). |
+| DCS-IR-SM-08 | Signature Compliance Viewer UI MUST allow generating audit reports … | ✅ Covered | Signature audit-report scenario (04, tagged @DCS-FR-SM-19). |
 
 ## 3.1.1 UI — Process Audit & Compliance (DCS-IR-PACM-…)
 
 | ID | Requirement | Status | Evidence / disposition |
 |---|---|---|---|
-| DCS-IR-PACM-01 | Auditing Tool UI MUST allow Auditors to initiate audits across cont… | ✅ Covered | 24/audit-report initiates a scoped server audit from the browser. |
-| DCS-IR-PACM-02 | Auditing Tool UI MUST provide reporting capabilities with exportabl… | ✅ Covered | 24/audit-report displays and exports the real scoped report. |
-| DCS-IR-PACM-03 | Non-Compliance Investigation UI MUST allow Compliance Officers to c… | ✅ Covered | 24/incident displays authoritative monitoring findings and starts an investigation. |
-| DCS-IR-PACM-04 | Non-Compliance Investigation UI MUST allow incident reporting and l… | ✅ Covered | 24/incident persists, retrieves, and exports a case linked to affected DIDs and findings. |
+| DCS-IR-PACM-01 | Auditing Tool UI MUST allow Auditors to initiate audits across cont… | ✅ Covered | 08 scoped-audit scenario (tagged @DCS-IR-PACM-01). |
+| DCS-IR-PACM-02 | Auditing Tool UI MUST provide reporting capabilities with exportabl… | ✅ Covered | 08 report-generation scenario (tagged @DCS-IR-PACM-02). |
+| DCS-IR-PACM-03 | Non-Compliance Investigation UI MUST allow Compliance Officers to c… | ✅ Covered | 08 continuous monitoring with structured checked_at+risks response; risk detection during approval incl. PAC-trail anchoring in 03/contract_approval. |
+| DCS-IR-PACM-04 | Non-Compliance Investigation UI MUST allow incident reporting and l… | ✅ Covered | 08 incident-reporting scenario (tagged @DCS-IR-PACM-04). |
 
 ## 3.1.2 Hardware Interfaces (DCS-IR-HI-…)
 
@@ -316,8 +313,8 @@ JUnit evidence.
 | DCS-NFR-BR-05 | Immutable Auditability | ✅ Covered | Hash-chained TSA/IPFS audit for all lifecycle actions (08) + RBAC on logs (08 non-auditor denial). |
 | DCS-NFR-BR-06 | Revocation & Termination Propagation | ✅ Covered | Signature revocation → REVOKED immediately (15); cross-instance propagation via the synchronizer's SignatureManagement broadcast (17 revocation-propagation scenario: revoke on A, REVOKED replicated on B through the JAdES-verified post_sync path). |
 | DCS-NFR-BR-07 | Token & API Control | 🟡 Partial | Role-scoped tokens enforced (01); explicit minimal-scope token issuance policy is IdP config — noted. |
-| DCS-NFR-BR-08 | DCS-to-DCS Interoperability Safeguards | ✅ Covered | 17 pack (tagged @NFR-BR-08): authenticated, trusted-peer-only exchanges with audit. |
-| DCS-NFR-BR-09 | Catalogue-Aligned Publishing | ✅ Covered | 02/template_catalogue proves component publish/consume and preserves `dcs:templateType=COMPONENT` in list, detail, and search. |
+| DCS-NFR-BR-08 | DCS-to-DCS Interoperability Safeguards | ✅ Covered | 17 pack (tagged @NFR-BR-08): authenticated, trusted-peer-only exchanges with audit. Phase 4: post_sync (backend/internal/service/dcs_to_dcs.go) calls validation.RemoteShapeSource/VerifyAgainstOriginatorHub after the four existing trust layers accept a synced contract — it resolves the document's sh:shapesGraph anchor back to the ORIGINATOR's public Semantic Hub and re-validates against those exact shapes, not the receiver's own local hub (best-effort/non-blocking: a peer hub outage never fails an otherwise-trusted sync). 17/two_instance_peer_trust "A contract synced from instance A carries a sh:shapesGraph anchor resolvable against instance A's own Semantic Hub" (@two-instance) proves the reachability precondition end to end; the validation logic itself is proven by TestVerifyAgainstOriginatorHub (httptest-simulated peer hub). |
+| DCS-NFR-BR-09 | Catalogue-Aligned Publishing | ✅ Covered | Catalogue publish/consume scenario (02/template_catalogue). |
 
 ## 3.3.3 Security (DCS-NFR-SEC-…)
 
@@ -382,13 +379,13 @@ JUnit evidence.
 | UC | Title | Feature pack(s) |
 |---|---|---|
 | UC-01 | User Authentication & Authorization | 01_authentication_authorization |
-| UC-02 | Contract Template Management | 02_template_management (component lifecycle/catalogue), 08_audit_compliance (composition-aware template policy audit), and 24_ui_traceability (new-draft component snapshot selection and atomic dependency validation) |
+| UC-02 | Contract Template Management | 02_template_management (incl. catalogue) |
 | UC-03 | Contract Creation | 03_contract_creation (creation, negotiation, approval, format review, state machine) |
 | UC-04 | Contract Signing | 22_real_signing_vertical, 04_contract_signing, 21_pki_consolidation |
 | UC-05 | Contract Deployment | 05_contract_deployment |
 | UC-06 | Contract Lifecycle Management | 06_contract_lifecycle (termination + renewal), 19 (expiry) |
 | UC-07 | Contract Storage & Security | 07_contract_storage_security, 20 (bundles/audit) |
-| UC-08 | Contract Compliance & Auditing | 08_audit_compliance (including composition-aware template policy audit), 18_odrl_soundness |
+| UC-08 | Contract Compliance & Auditing | 08_audit_compliance, 18_odrl_soundness |
 | UC-09 | DCS Administration | RBAC config is IdP/Helm config (📋); role enforcement covered by 01 + negatives suite-wide |
 | UC-10 | Contract Automation & Integration | 05 (ORCE), 12 (API automation), 18 (integrity gates) |
 | UC-11 | API & System Integrations | 05, 12, 17; catalogue (02) |
@@ -415,3 +412,40 @@ through that path. A dedicated rejected-presentation-at-login negative remains f
 work, not a deviation.
 Multi-signer flows (DCS-FR-SM-07/17) graduated from this list: 22/multi_signer asserts them
 end-to-end, including two distinct signer identities and the deploy gate.
+
+
+## Semantic canonicity evidence (interoperability assertion)
+
+Claim: every artifact the DCS produces is standard, canonical semantics — consumable by
+off-the-shelf JSON-LD/RDF/ODRL/SHACL tooling with no DCS-specific conventions beyond a served,
+declared ODRL profile.
+
+| Assertion | Evidence |
+|---|---|
+| Documents are valid JSON-LD 1.1; every term resolves | `@context` is the Semantic Hub's versioned, dereferenceable URL (23/semantic_hub resolve scenarios); json-gold expansion round-trips in every audit (`expandForAudit`, backend/internal/base/validation/odrlexpanded.go); external contexts resolve or normalization fails (`validateExternalContextsResolvable`). |
+| Policy sets are conformant ODRL 2.2 | One enclosing `odrl:Offer` (unsigned) / `odrl:Agreement` (sealed at first signature — 18 "first signature seals" scenario); rules under permission/prohibition/obligation only (odrl:duty bucket rejected); policy identity is `@id` (separate `uid` rejected); exactly one action + assigner/assignee/target per rule (18 structure scenarios; `validateODRLPolicySet`). |
+| Custom semantics are declared, not implied | The DCS ODRL profile is a served document (`/semantic/ontology/dcs-odrl-profile`; docs/semantic-ontology/odrl/dcs-odrl-profile.ttl) declaring `dcs:provideCompliantValue odrl:includedIn odrl:use` and `dcs:RequirementField ⊑ odrl:LeftOperand`; every policy set declares `odrl:profile`. |
+| Constraint↔value binding is plain graph traversal | A submitted value references its field by IRI (`dcs:forField` = the constraint's `odrl:leftOperand`); enforced by SHACL (`dcs:SemanticConditionValueShape`) and exercised by every 18/05 enforcement scenario plus the Playwright fill spec (e2e/contract-fill.spec.ts). |
+| Machine rules are prose-backed | `dcs:prose` required on every rule (Go gate + `Odrl*ProseShape` SHACL shapes); the Playwright builder spec asserts the emitted rule's prose dereferences to a document block. |
+| SHACL validation is real SHACL | goRDFlib engine (ADR-9) against hub-served shapes pinned by `sh:shapesGraph` (ADR-8); version-pinning proven by 23 "stricter shapes version" scenario; shacl-form renders forms from the same raw Turtle (Gaia-X shapes render unmodified). |
+| Provenance is PROV-aligned | `dcs:derivedFromTemplate ⊑ prov:wasDerivedFrom`, `dcs:renewsContract ⊑ prov:wasRevisionOf` (generated OWL, docs/semantic-ontology/linkml); derivation carries the template `@id` + version as a node, not an opaque blob. |
+| Canonical hashing is a standard | RFC 8785 JCS for the JAdES payload and deployment content hash — byte-identical across Go (`gowebpki/jcs`) and Python (`jcs`), proven by the cross-language fixture test and 17/05 hash-verification scenarios. |
+| Vocabulary identity is shared, not per-instance | w3id.org namespaces are the vocabulary identity (hub serves the content); two federated instances speak the same terms (17 peer scenarios exchange and verify full documents). Public w3id dereferencing is the one external residual (registration PR). |
+
+## eIDAS 2.0 signature soundness evidence
+
+Claim: the signature chain is architecturally sound under eIDAS 2.0 for advanced electronic
+signatures (AdES), with qualified-level (QES) execution being the single recorded deviation
+(no qualified TSP/QSCD reachable from the hermetic environment; `credential_type` carries the
+level end-to-end for when one is wired).
+
+| Assertion | Evidence |
+|---|---|
+| Signer identification via the EUDI-wallet mechanism | Signing requires a completed OID4VP PID presentation ceremony (SD-JWT VC + KB-JWT), verified before any signature (`ErrCeremonyRequired`, 22 ceremony-gate scenarios); the presentation is embedded verbatim into the signed PDF inside a signing-summary VC (embed-first-sign-second, 22 PID-embedding + verify cross-check). |
+| Signature format is a recognized AdES baseline | PAdES signatures over PDF/A-3 via the HSM-backed P-256 key (PKCS#11/SoftHSM2, ADR-1; 21 internal-signing + CRL scenarios); DCS-to-DCS transport signatures are JAdES baseline-B (ETSI TS 119 182-1: sigT marked crit, x5c chain — backend/internal/base/jades, 17 peer verification scenarios). |
+| Trust anchoring against the EU list | `EUTrustPool` (LOTL/TSL) gates every contract mutation and both peer-sync legs (`VerifyEIDASCertificate` in contract_workflow_engine.go and dcs_to_dcs.go); dev CA is a swappable TrustAnchor, not a bypass. |
+| Revocation is enforced | Credential status lists checked on every verification via the mechanism-detecting status verifier (W3C BitstringStatusList/StatusList2021, IETF Token Status List over JOSE/COSE-CWT, XFSC — backend/internal/auth/oid4vp/status + statuslist_verify.go, docs/status-list-verification.md); CRL revocation flips signing to rejection (21 CRL scenario); signature revocation is first-class (04 revoke scenarios). |
+| Time evidence is RFC 3161 | Archive entries and deployment receipts carry TSA timestamps verified against the provisioned TSA certificate (05 TSA-evidence scenario, 07 archive entries); JAdES carries claimed signing time (sigT). |
+| The signed bytes are the semantic document | The content hash (RFC 8785) and the PAdES signature are computed over the sealed odrl:Agreement document inside the signing transaction (apply.go seal-before-hash); export/verify recompute and compare (03 format_review tamper seams, 20 export refusal). |
+| Integrity of the archived artifact | C2PA manifest with lifecycle assertions stamped before signing (update-then-sign, ADR-4; 19 conformance scenarios), archive chain hash-linked and TSA-timestamped with signing evidence embedded (08 audit_ui_archive_orce feature). |
+| What would make it QES | A qualified TSP signing certificate on a QSCD replacing the dev CA in the same PKCS#11 slot, plus a qualified TSA endpoint in `TSA_URL` — both configuration-level swaps by design (ADR-1, ADR-3); recorded as the DCS-FR-SM-01 partial. |

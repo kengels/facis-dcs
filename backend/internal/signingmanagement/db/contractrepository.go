@@ -138,7 +138,7 @@ type SignatureRecord struct {
 	RevokedReason  *string    `db:"revoked_reason"`
 	CertRevokedAt  *time.Time `db:"cert_revoked_at"`
 	// FieldName is the declared signature field this signature covers
-	// (DCS-FR-SM-07/-17); nil for signatures predating multi-signer support.
+	// (DCS-FR-SM-07/-17); nil on the single-signer flow.
 	FieldName *string `db:"field_name"`
 }
 
@@ -147,6 +147,7 @@ type ContractRepo interface {
 	ReadProcessDataByDID(ctx context.Context, tx *sqlx.Tx, did string) (*ContractProcessData, error)
 	ReadAllMetaData(ctx context.Context, tx *sqlx.Tx, pagination datatype.Pagination) ([]ContractMetadata, error)
 	UpdateState(ctx context.Context, tx *sqlx.Tx, did string, state string) error
+	UpdateContractData(ctx context.Context, tx *sqlx.Tx, did string, contractData datatype.JSON) error
 
 	CreateSignature(ctx context.Context, tx *sqlx.Tx, signature ContractSignature) error
 	// SetSignedPDF points the contract at the PAdES-signed PDF artefact in IPFS
