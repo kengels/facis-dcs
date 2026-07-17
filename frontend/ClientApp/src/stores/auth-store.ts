@@ -48,7 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
     return true
   }
 
-  function restoreFromAccessToken(): boolean {
+  function restoreFromToken(): boolean {
     const holder = authTokenStore.getHolder
     if (!authTokenStore.isAuthSet || typeof holder !== 'string' || holder.length === 0) {
       return false
@@ -60,5 +60,5 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
   }
 
-  return { user, isAuthenticated, setHolder, restoreFromAccessToken, remove }
+  return { user, isAuthenticated, setHolder, restoreFromToken, remove }
 })

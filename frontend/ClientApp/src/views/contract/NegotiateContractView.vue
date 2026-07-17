@@ -343,10 +343,7 @@ const handleSelectedNegotiation = async (negotiation: ContractNegotiation | null
     }
     const negotiationChangeData = negotiation.change_request.contract_data
     const negotiationValues = negotiationChangeData
-      ? fromDocumentSemanticValues(
-          negotiationChangeData.semanticConditionValues ?? [],
-          collectDeclaredRequirements(negotiationChangeData),
-        )
+      ? fromDocumentSemanticValues(collectDeclaredRequirements(negotiationChangeData))
       : []
 
     const originalValuesMap = new Map(

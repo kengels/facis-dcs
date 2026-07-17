@@ -4,7 +4,7 @@ export interface JsonLdReference {
 
 export interface JsonLdTypedValue {
   '@value': string
-  '@type': `xsd:${'string' | 'decimal' | 'integer' | 'boolean' | 'date'}`
+  '@type': `xsd:${'string' | 'decimal' | 'integer' | 'boolean' | 'date' | 'dateTime'}`
 }
 
 export interface DcsTemplateMetadata {
@@ -57,20 +57,6 @@ export interface DcsClause {
   'dcs:content': { '@list': DcsContentSegment[] } | string
   'dcs:title'?: string
   'dcs:signatureFields'?: DcsSignatureField[]
-  /**
-   * An optional typed clause instance nested inside a free-text dcs:Clause
-   * block. The nested object carries its own @type (e.g. "dcs:PaymentClause",
-   * from the Semantic Hub clause catalog, GET /semantic/clauses) and becomes
-   * its own JSON-LD/RDF node — server-side SHACL validation targets it by
-   * that @type regardless of nesting, so the palette-generated form and
-   * enforcement share one source of truth.
-   */
-  'dcs:typedClause'?: DcsTypedClauseInstance
-}
-
-export interface DcsTypedClauseInstance {
-  '@type': string
-  [property: string]: unknown
 }
 
 export interface DcsApprovedTemplate {
@@ -105,6 +91,14 @@ export interface DcsRequirementField {
   'dcs:domainField'?: JsonLdReference
   'dcs:valueType'?: string
   'dcs:required': boolean
+  /**
+   * The submitted runtime value, carried inline on the field an ODRL
+   * constraint names as its odrl:leftOperand. Absent on a template (the
+   * declaration), filled at contract time.
+   */
+  'dcs:parameterValue'?: string | number | boolean
+  /** The document block a placeholder bound to this field renders into. */
+  'dcs:blockId'?: string
 }
 
 export interface DcsDataRequirement {
@@ -131,7 +125,15 @@ export interface OdrlConstraint {
   '@type': 'odrl:Constraint'
   'odrl:leftOperand': JsonLdReference
   'odrl:operator': JsonLdReference
-  'odrl:rightOperand'?: JsonLdTypedValue | JsonLdTypedValue[]
+  /**
+   * The boundary the left operand is checked against: a fixed literal (or list
+   * for set operators), or a reference to a RequirementField whose value is
+   * agreed during contract negotiation. SRS Appendix C is a template whose
+   * spatial and dateTime boundaries (the permitted region, the access deadline)
+   * are negotiated field references, resolved to their filled values at
+   * enforcement.
+   */
+  'odrl:rightOperand'?: JsonLdTypedValue | JsonLdTypedValue[] | JsonLdReference
 }
 
 export interface OdrlRule {
@@ -146,7 +148,10 @@ export interface OdrlRule {
   'odrl:target': JsonLdReference
   /** The human-readable clause node this rule is backed by (required — machine rules operationalize audited prose). */
   'dcs:prose': JsonLdReference
-  'odrl:constraint'?: OdrlConstraint
+  /** The rule's constraints; all must hold (ODRL IM §2.5: multiple constraints
+   *  are a conjunction). A permission bounded by both a spatial and a temporal
+   *  condition (SRS Appendix C) carries two. */
+  'odrl:constraint'?: OdrlConstraint[]
 }
 
 /** The single enclosing ODRL 2.2 policy for a template (Offer) or contract (Agreement). */
@@ -190,18 +195,7 @@ export interface DcsContractData extends DcsDocumentData {
   'dcs:metadata': DcsContractMetadata | DcsTemplateMetadata
   'dcs:contractFields'?: DcsContractField[]
   'dcs:parentContract'?: JsonLdReference
-  semanticConditionValues?: DcsSemanticConditionValue[]
   derivedFromTemplate?: DcsTemplateProvenance
-}
-
-/**
- * A submitted runtime value; forField references the dcs:RequirementField
- * an ODRL constraint names as its odrl:leftOperand.
- */
-export interface DcsSemanticConditionValue {
-  forField: string
-  blockId?: string
-  parameterValue?: string | number | boolean
 }
 
 /** The source-template node: a prov:wasDerivedFrom edge plus version assertion. */
