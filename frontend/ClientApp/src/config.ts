@@ -1,0 +1,51 @@
+// Configuration: window.DCS_CONFIG (prod) or import.meta.env (dev)
+
+export interface DCSConfig {
+  API_BASE_URL: string
+}
+
+declare global {
+  interface Window {
+    DCS_CONFIG?: DCSConfig
+  }
+}
+
+export function getConfig(): DCSConfig {
+  if (window.DCS_CONFIG) {
+    return window.DCS_CONFIG
+  }
+
+  return {
+    API_BASE_URL: import.meta.env.DCS_API_PATH || '/api',
+  }
+}
+
+export function getUIBasePath(): string {
+  const baseHref = document.querySelector('base')?.getAttribute('href')
+  const fromBase = normalizeBasePath(baseHref)
+  if (fromBase) {
+    return fromBase
+  }
+
+  return normalizeBasePath(import.meta.env.DCS_UI_PATH) || '/ui/'
+}
+
+function normalizeBasePath(value?: string | null): string {
+  if (!value) {
+    return ''
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  let path = trimmed
+  if (!path.startsWith('/')) {
+    path = '/' + path
+  }
+  if (!path.endsWith('/')) {
+    path = path + '/'
+  }
+  return path
+}

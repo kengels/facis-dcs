@@ -1,0 +1,175 @@
+<script setup lang="ts">
+import { computed, onUnmounted, type Ref, ref } from 'vue'
+import { ROUTES } from '@/router/router'
+import { useContractTemplatesStore } from '@/stores/contract-templates-store'
+import { useContractsStore } from '@/stores/contracts-store'
+import { useReviewTaskStateFilterStore } from '@/stores/state-filter-store'
+import { ContractState } from '@/types/contract-state'
+import { TemplateState } from '@/types/contract-template-state'
+import { ReviewTaskState, reviewTaskStates } from '@/types/review-task-state'
+import { compareValues } from '@/utils/comparison'
+import { toProperCase } from '@/utils/string'
+import TaskListSearch from './TaskListSearch.vue'
+import ListSort from '../ListSort.vue'
+import ListStateFilter from '../ListStateFilter.vue'
+import type { ContractReviewTask } from '@/models/contract/contract-review-task'
+import type { ContractTemplateReviewTask } from '@/models/contract-template/contract-template-review-task'
+
+type ReviewTask = ContractTemplateReviewTask | ContractReviewTask
+
+const props = defineProps<{
+  tasks: ReviewTask[]
+}>()
+
+const templatesStore = useContractTemplatesStore()
+const contractsStore = useContractsStore()
+const stateFilterStore = useReviewTaskStateFilterStore()
+
+const sorter = new Map<keyof ReviewTask, string>([
+  ['created_at', 'Creation date'],
+  ['state', 'Task state'],
+])
+const defaultSort = sorter.keys().next().value!
+const sortBy = ref(defaultSort)
+const sortOrder = ref(1)
+
+const searchedTasks: Ref<ReviewTask[]> = ref([])
+const isSearchActive = ref(false)
+
+const displayedTasks = computed(() => {
+  return isSearchActive.value ? searchedTasks.value : props.tasks
+})
+
+const sortedTasks = computed(() => {
+  if (!sorter.has(sortBy.value)) {
+    return displayedTasks.value
+  }
+  return displayedTasks.value.slice().sort((taskA, taskB) => compareValues(taskA, taskB, sortBy.value, sortOrder.value))
+})
+
+const hasTasks = computed(() => props.tasks.length > 0)
+
+const filteredTasks = computed(() => {
+  if (stateFilterStore.hasFilters) {
+    return sortedTasks.value.filter((task) => stateFilterStore.hasFilter(task.state))
+  }
+  return sortedTasks.value.filter(canReview)
+})
+
+const getTemplateName = (task: ContractTemplateReviewTask) => {
+  return templatesStore.findTemplateByDid(task.did)?.name ?? 'Nameless Template'
+}
+
+const getContractName = (task: ContractReviewTask) => {
+  return contractsStore.findContractByDid(task.did)?.name ?? 'Nameless Contract'
+}
+
+const getContractState = (task: ContractReviewTask) => {
+  return contractsStore.findContractByDid(task.did)?.state
+}
+
+const getTemplateState = (task: ContractTemplateReviewTask) => {
+  return templatesStore.findTemplateByDid(task.did)?.state
+}
+
+const canReview = (task: ReviewTask) => {
+  if (task.type === 'template') {
+    return task.state === ReviewTaskState.open && getTemplateState(task) === TemplateState.submitted
+  }
+  return task.state === ReviewTaskState.open && getContractState(task) === ContractState.submitted
+}
+
+const canEdit = (task: ReviewTask) => {
+  if (task.type === 'contract') return false
+
+  const template = templatesStore.findTemplateByDid(task.did)
+  const state = template?.state
+  return state === TemplateState.draft || state === TemplateState.rejected || state === TemplateState.submitted
+}
+
+const resolveViewRouteName = (task: ReviewTask) => {
+  if (task.type === 'template') {
+    if (canReview(task)) {
+      return ROUTES.TEMPLATES.REVIEW
+    }
+    return ROUTES.TEMPLATES.VIEW
+  } else {
+    if (canReview(task)) {
+      return ROUTES.CONTRACTS.REVIEW
+    }
+    return ROUTES.CONTRACTS.VIEW
+  }
+}
+
+const applySearchResult = (searchResult: ReviewTask[] | null) => {
+  isSearchActive.value = !!searchResult
+  if (searchResult) {
+    searchedTasks.value = searchResult
+  }
+}
+
+onUnmounted(() => stateFilterStore.reset())
+</script>
+
+<template>
+  <div class="flex h-full min-h-0 flex-col">
+    <ul class="list flex-1 overflow-y-auto">
+      <li class="flex w-full flex-col justify-end px-4 tracking-wide sm:flex-row">
+        <TaskListSearch class="flex-1" :tasks="tasks" @search-result="applySearchResult" />
+        <ListStateFilter
+          label="Review Task"
+          :filters="reviewTaskStates"
+          store-type="reviewTasks"
+          :disabled="!hasTasks"
+        />
+        <ListSort v-model:sort-by="sortBy" v-model:sort-order="sortOrder" :sorter="sorter" :disabled="!hasTasks" />
+      </li>
+      <template v-if="filteredTasks.length > 0">
+        <li v-for="task in filteredTasks" :key="task.did" class="list-row">
+          <div class="list-col-grow card border-base-content/10 bg-base-100 card-border hover:bg-base-300">
+            <div class="card-body">
+              <h2 class="card-title flex-wrap justify-between">
+                <div v-if="task.type === 'template'">Template Name: {{ getTemplateName(task) }}</div>
+                <div v-else>Contract Name: {{ getContractName(task) }}</div>
+                <div class="flex-1"></div>
+                <div class="badge badge-accent">{{ toProperCase(task.type) }} Task</div>
+                <div class="badge badge-secondary">{{ task.state }}</div>
+              </h2>
+              <div class="flex justify-between">
+                <div v-if="task.type === 'template' && task.version">Version: {{ task.version }}</div>
+                <div v-else-if="task.type === 'contract' && task.contract_version">
+                  Version: {{ task.contract_version }}
+                </div>
+              </div>
+              <div class="flex justify-between">
+                <div>Creation date: {{ new Date(task.created_at).toLocaleDateString() }}</div>
+                <div class="card-actions justify-end">
+                  <RouterLink
+                    :to="{
+                      name: resolveViewRouteName(task),
+                      params: { did: task.did },
+                    }"
+                    class="btn btn-sm btn-primary"
+                  >
+                    View
+                  </RouterLink>
+                  <RouterLink
+                    v-if="canEdit(task)"
+                    :to="{
+                      name: ROUTES.TEMPLATES.EDIT,
+                      params: { did: task.did },
+                    }"
+                    class="btn gap-2 btn-sm btn-primary"
+                  >
+                    Edit
+                  </RouterLink>
+                </div>
+              </div>
+            </div>
+          </div>
+        </li>
+      </template>
+      <li v-else class="px-4">No review tasks found.</li>
+    </ul>
+  </div>
+</template>

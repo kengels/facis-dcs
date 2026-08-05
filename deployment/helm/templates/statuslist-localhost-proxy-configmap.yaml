@@ -1,0 +1,37 @@
+{{- if .Values.statusListLocalhostProxy.enabled }}
+{{- $upstream := required "statusListLocalhostProxy.upstream is required when enabled" .Values.statusListLocalhostProxy.upstream }}
+{{- $proxy := .Values.statusListLocalhostProxy }}
+{{- /* The port is carried in the forwarded Host on purpose. The issuer builds
+       the status list's `sub` from the Host it is given, and the verifier
+       refuses a list whose sub is not the URI the credential names — a bare
+       hostname would drop the port and produce a sub no credential mentions.
+       An Ingress host rule matches on hostname alone, so it does not affect
+       routing. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "digital-contracting-service.fullname" . }}-statuslist-localhost-proxy
+  labels:
+    {{- include "digital-contracting-service.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    worker_processes 1;
+    error_log /dev/stderr warn;
+    pid /tmp/nginx.pid;
+    events {
+      worker_connections 64;
+    }
+    http {
+      access_log /dev/stdout;
+      server {
+        listen {{ .Values.statusListLocalhostProxy.listenPort }};
+        listen [::]:{{ .Values.statusListLocalhostProxy.listenPort }};
+        {{- range $proxy.paths }}
+        location {{ .prefix }} {
+          proxy_pass {{ $upstream }};
+          proxy_set_header Host {{ printf "%s:%v" (.host | default $proxy.ingressHost) $proxy.listenPort }};
+        }
+        {{- end }}
+      }
+    }
+{{- end }}

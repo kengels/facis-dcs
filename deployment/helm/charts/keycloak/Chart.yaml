@@ -1,0 +1,6 @@
+apiVersion: v2
+name: keycloak
+description: Owned Keycloak for the Federated Catalogue (federated-catalogue-realm)
+type: application
+version: 0.1.0
+appVersion: "26.6.0"

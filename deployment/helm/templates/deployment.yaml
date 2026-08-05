@@ -1,0 +1,545 @@
+{{- if and .Values.federatedCatalogue.enabled (not .Values.fcservice.enabled) (not .Values.federatedCatalogue.remote.acknowledgeAdminAllTrustBoundary) }}
+{{- fail "remote Federated Catalogue requires federatedCatalogue.remote.acknowledgeAdminAllTrustBoundary=true: ADR-18 service credentials currently carry ADMIN_ALL and provide no tenant isolation" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "digital-contracting-service.fullname" . }}
+  labels:
+    {{- include "digital-contracting-service.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "digital-contracting-service.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "digital-contracting-service.labels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ if and .Values.fcservice.enabled .Values.fcservice.realmProvision.enabled }}{{ include "digital-contracting-service.fullname" . }}-fc-lifecycle{{ else }}{{ include "digital-contracting-service.serviceAccountName" . }}{{ end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: {{ default "ClusterFirstWithHostNet" .Values.dnsPolicy }}
+      {{- end }}
+      {{- if and .Values.fcservice.enabled .Values.fcservice.realmProvision.enabled }}
+      initContainers:
+        # Helm post-install/post-upgrade hooks are created after regular
+        # resources. Keep creation and completion as distinct Kubernetes watch
+        # gates: kubectl's --for option is singular and repeated values do not
+        # express a sequence.
+        - name: fc-realm-job-created
+          image: "{{ .Values.fcservice.realmProvision.image.repository }}:{{ .Values.fcservice.realmProvision.image.tag }}"
+          imagePullPolicy: {{ .Values.fcservice.realmProvision.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 65532
+          command:
+            - kubectl
+            - wait
+            - --for=create
+            - --timeout=-1s
+            - job/{{ include "digital-contracting-service.fullname" . }}-fc-realm-provision
+        - name: fc-realm-ready
+          image: "{{ .Values.fcservice.realmProvision.image.repository }}:{{ .Values.fcservice.realmProvision.image.tag }}"
+          imagePullPolicy: {{ .Values.fcservice.realmProvision.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 65532
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -u
+
+              job="{{ include "digital-contracting-service.fullname" . }}-fc-realm-provision"
+              complete_log=/tmp/fc-realm-complete-watch.log
+              failed_log=/tmp/fc-realm-failed-watch.log
+
+              kubectl wait --for=condition=complete --timeout=-1s "job/$job" >"$complete_log" 2>&1 &
+              complete_pid=$!
+              kubectl wait --for=condition=failed --timeout=-1s "job/$job" >"$failed_log" 2>&1 &
+              failed_pid=$!
+
+              finished_pid=""
+              wait -n -p finished_pid "$complete_pid" "$failed_pid"
+              watch_status=$?
+
+              if [ "$finished_pid" = "$complete_pid" ]; then
+                terminal_condition="Complete"
+                other_pid="$failed_pid"
+                finished_log="$complete_log"
+              else
+                terminal_condition="Failed"
+                other_pid="$complete_pid"
+                finished_log="$failed_log"
+              fi
+              kill "$other_pid" 2>/dev/null || true
+              wait "$other_pid" 2>/dev/null || true
+
+              if [ "$watch_status" -ne 0 ]; then
+                cat "$finished_log" >&2
+                echo "Federated Catalogue realm provisioning watch terminated before a terminal Job condition (exit $watch_status)." >&2
+                exit "$watch_status"
+              elif [ "$terminal_condition" = "Failed" ]; then
+                failure="$(kubectl get "job/$job" -o json | jq -r '
+                  .status.conditions[]?
+                  | select(.type == "Failed" and .status == "True")
+                  | "reason=\(.reason // "unknown"); message=\(.message // "not provided")"
+                ')"
+                echo "Federated Catalogue realm provisioning Job $job failed: ${failure:-reason unknown; message not provided}" >&2
+                exit 1
+              fi
+
+              echo "Federated Catalogue realm provisioning Job $job completed."
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            {{- if .Values.dss }}{{- if or .Values.dss.enabled .Values.dss.url }}
+            # EU DSS for signature VALIDATION (DCS-FR-SM-18) and the
+            # wallet-driven /signature/submit acceptance path (ADR-12). The DCS
+            # validates a signature the SIGNATORY produced with their wallet/QTSP
+            # or a desktop PAdES signer; it holds no contract-signing key.
+            #
+            # dss.url points at the DSS to VALIDATE against; dss.enabled deploys
+            # one. They are independent: an instance may validate against an
+            # existing DSS (its own deployment, or a shared one) without running
+            # a second copy. Without a DSS_URL the instance has no validator and
+            # refuses every externally-produced signature.
+            - name: DSS_URL
+              value: {{ .Values.dss.url | default (printf "http://%s-dss:8080" .Release.Name) | quote }}
+            {{- end }}{{- end }}
+            {{- if and .Values.hydra.enabled .Values.hydra.clients }}
+            {{- $hydraClient := index .Values.hydra.clients 0 }}
+            - name: HYDRA_PUBLIC_ISSUER_URL
+              value: {{ include "digital-contracting-service.hydraIssuerURL" . | quote }}
+            - name: HYDRA_INTERNAL_ISSUER_URL
+              value: {{ include "digital-contracting-service.hydraInternalIssuerURL" . | quote }}
+            - name: HYDRA_CLIENT_ID
+              value: {{ $hydraClient.client_id | quote }}
+            - name: HYDRA_CLIENT_SECRET
+              value: {{ $hydraClient.client_secret | quote }}
+            - name: HYDRA_REDIRECT_URI
+              value: {{ index $hydraClient.redirect_uris 0 | quote }}
+            - name: HYDRA_POST_LOGOUT_REDIRECT_URI
+              value: {{ index $hydraClient.post_logout_redirect_uris 0 | quote }}
+            - name: HYDRA_ADMIN_URL
+              value: {{ include "digital-contracting-service.hydraAdminURL" . | quote }}
+            {{- end }}
+            {{- if .Values.systemClients }}
+            # SRS §2.4 Table 5 System Users: machine callers that authenticate
+            # with the OAuth2 client credentials grant. Their roles are fixed
+            # here, not carried in the token — a client-credentials token has no
+            # OID4VP ceremony behind it and therefore no verifiable role claims.
+            - name: DCS_SYSTEM_CLIENTS
+              value: {{ .Values.systemClients | toJson | quote }}
+            {{- end }}
+            {{- if and .Values.federatedCatalogue.enabled (include "digital-contracting-service.fcKeycloakRealmURL" .) }}
+            - name: FC_KEYCLOAK_REALM_URL
+              value: {{ include "digital-contracting-service.fcKeycloakRealmURL" . | quote }}
+            {{- end }}
+            - name: DATABASE_URL
+              {{- if .Values.database.secretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretRef.name | quote }}
+                  key: {{ .Values.database.secretRef.key | quote }}
+              {{- else }}
+              value: {{ include "digital-contracting-service.databaseURL" . | quote }}
+              {{- end }}
+            - name: NATS_URL
+              {{- if .Values.messaging.secretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.messaging.secretRef.name | quote }}
+                  key: {{ .Values.messaging.secretRef.key | quote }}
+              {{- else }}
+              value: {{ include "digital-contracting-service.natsURL" . | quote }}
+              {{- end }}
+            {{- if .Values.federatedCatalogue.enabled }}
+            - name: FEDERATED_CATALOGUE_API_URL
+              {{- if and .Values.federatedCatalogue.secretRef .Values.federatedCatalogue.secretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.federatedCatalogue.secretRef.name | quote }}
+                  key: {{ .Values.federatedCatalogue.secretRef.key | quote }}
+              {{- else }}
+              value: {{ .Values.federatedCatalogue.apiURL | quote }}
+              {{- end }}
+            - name: FEDERATED_CATALOGUE_CLIENT_ID
+              value: {{ .Values.federatedCatalogue.oauth.clientID | quote }}
+            - name: FEDERATED_CATALOGUE_CLIENT_SECRET
+              {{- if .Values.federatedCatalogue.oauth.clientSecretSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.federatedCatalogue.oauth.clientSecretSecretRef.name | quote }}
+                  key: {{ .Values.federatedCatalogue.oauth.clientSecretSecretRef.key | quote }}
+              {{- else }}
+              value: {{ .Values.federatedCatalogue.oauth.clientSecret | quote }}
+              {{- end }}
+            {{- if .Values.fcservice.enabled }}
+            - name: FEDERATED_CATALOGUE_REQUIRE_NATIVE_HEALTH
+              value: "true"
+            {{- end }}
+            {{- end }}
+            - name: DCS_API_PATH
+              value: {{ include "digital-contracting-service.apiPath" . | quote }}
+            - name: DCS_UI_PATH
+              value: {{ include "digital-contracting-service.uiPath" . | quote }}
+            {{- if .Values.route.publicBaseURL }}
+            - name: DCS_PUBLIC_BASE_URL
+              value: {{ .Values.route.publicBaseURL | quote }}
+            - name: DCS_PUBLIC_URL
+              value: {{ include "digital-contracting-service.publicAnchorBaseURL" . | quote }}
+            {{- end }}
+            {{- if .Values.contractTargets }}
+            - name: CONTRACT_TARGETS_FILE
+              value: /etc/dcs/contract-targets/targets.json
+            {{- end }}
+            {{- if .Values.oid4vp.trust.enabled }}
+            - name: OID4VP_TRUST_DATA_PATH
+              value: {{ include "digital-contracting-service.oid4vpTrustDataPath" . | quote }}
+            {{- if .Values.oid4vp.trust.x5cAnchorsPath }}
+            - name: OID4VP_X5C_TRUST_ANCHORS_PATH
+              value: {{ .Values.oid4vp.trust.x5cAnchorsPath | quote }}
+            {{- end }}
+            {{- end }}
+            # ---- PKCS#11 signing token (DCS-IR-HI-01) ------------------------------
+            # Every private key lives in this PKCS#11 token; there is no software
+            # fallback, so a wrong module/token/PIN is fatal at startup. With
+            # pkcs11.provisioning.enabled the token is a co-deployed SoftHSM2
+            # software token (dev/staging/CI only, never a production HSM).
+            - name: PKCS11_MODULE_PATH
+              value: {{ .Values.pkcs11.modulePath | quote }}
+            - name: PKCS11_TOKEN_LABEL
+              value: {{ .Values.pkcs11.tokenLabel | quote }}
+            - name: PKCS11_PIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "digital-contracting-service.hsmPinSecretName" . | quote }}
+                  key: {{ .Values.pkcs11.pinSecretRef.key | quote }}
+            {{- if .Values.pkcs11.provisioning.enabled }}
+            - name: SOFTHSM2_CONF
+              value: {{ printf "%s/softhsm2.conf" .Values.pkcs11.provisioning.tokenDir | quote }}
+            {{- end }}
+            - name: ISSUER_DID
+              {{- if .Values.signing.issuerDIDSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.signing.issuerDIDSecretRef.name | quote }}
+                  key: {{ .Values.signing.issuerDIDSecretRef.key | quote }}
+              {{- else }}
+              value: {{ include "digital-contracting-service.issuerDID" . | quote }}
+              {{- end }}
+            {{- if .Values.identity.enabled }}
+            # DID identity (DCS_DID is fatal on startup when missing): did.json
+            # comes from the Secret the hsm-provision post-install hook publishes
+            # (see the 'identitySecretName' helper), or — when that hook may not
+            # touch the API (provisioning.publishSecrets=false) — straight off the
+            # token volume the hook writes it to and this pod already mounts.
+            - name: DCS_DID
+              {{- if .Values.pkcs11.provisioning.publishSecrets }}
+              value: {{ printf "%s/did.json" .Values.identity.mountPath | quote }}
+              {{- else }}
+              value: {{ printf "%s/did.json" .Values.pkcs11.provisioning.tokenDir | quote }}
+              {{- end }}
+            {{- end }}
+            {{- if .Values.federation.trustPdpURL }}
+            # ADR-19 federation trust gate. Emitted only when set so a deployment
+            # that configures it through extraEnv instead does not end up with two
+            # DCS_TRUST_PDP_URL entries.
+            - name: DCS_TRUST_PDP_URL
+              value: {{ .Values.federation.trustPdpURL | quote }}
+            {{- end }}
+            - name: TSA_URL
+              value: {{ .Values.signing.tsaURL | quote }}
+            {{- if .Values.signing.tsaTrustCertSecret }}
+            # Trust anchor for verifying RFC3161 tokens issued by an in-cluster
+            # dev TSA (ORCE chart localTSA mode) instead of the compile-time
+            # embedded certs/tsa.crt.
+            - name: TSA_TRUST_CERT_FILE
+              value: /etc/dcs/tsa-trust/tsa-cert.pem
+            {{- end }}
+            # ---- IPFS storage -------------------------------------------------------
+            - name: IPFS_TENANT_BASE_URL
+              {{- if .Values.ipfs.tenantBaseURLSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.ipfs.tenantBaseURLSecretRef.name | quote }}
+                  key: {{ .Values.ipfs.tenantBaseURLSecretRef.key | quote }}
+              {{- else }}
+              value: {{ include "digital-contracting-service.ipfsTenantBaseURL" . | quote }}
+              {{- end }}
+            - name: IPFS_MFS_BASE_URL
+              value: {{ include "digital-contracting-service.ipfsMfsBaseURL" . | quote }}
+            # ---- Archive notary / ORCE ---------------------------------------------
+            {{- $archiveNotaryBaseURL := .Values.archiveNotary.baseURL | default "" }}
+            {{- if and (not $archiveNotaryBaseURL) .Values.orce.enabled }}
+            {{- $archiveNotaryBaseURL = printf "http://%s-orce:%v" .Release.Name (.Values.orce.service.port | default 1880) }}
+            {{- end }}
+            {{- $archiveNotaryURL := "" }}
+            {{- $archiveAuditLogURL := "" }}
+            {{- if $archiveNotaryBaseURL }}
+            {{- $archiveNotaryURL = printf "%s%s" $archiveNotaryBaseURL .Values.archiveNotary.notaryPath }}
+            {{- $archiveAuditLogURL = printf "%s%s" $archiveNotaryBaseURL .Values.archiveNotary.auditLogPath }}
+            {{- end }}
+            - name: ORCE_ARCHIVE_NOTARY_URL
+              value: {{ $archiveNotaryURL | quote }}
+            - name: ORCE_ARCHIVE_AUDIT_LOG_URL
+              value: {{ $archiveAuditLogURL | quote }}
+            - name: ORCE_ARCHIVE_AUDIT_LOG_BEARER_TOKEN
+              {{- if .Values.global.archiveAuditTokenSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.archiveAuditTokenSecretRef.name | quote }}
+                  key: {{ .Values.global.archiveAuditTokenSecretRef.key | quote }}
+              {{- else }}
+              value: {{ .Values.global.archiveAuditToken | quote }}
+              {{- end }}
+            # ---- Configurable PAC audit executor ---------------------------------
+            {{- $auditExecutorURL := .Values.auditExecutor.url | default "" }}
+            {{- if and (not $auditExecutorURL) .Values.orce.enabled }}
+            {{- $auditExecutorURL = printf "http://%s-orce:%v%s" .Release.Name (.Values.orce.service.port | default 1880) .Values.auditExecutor.path }}
+            {{- end }}
+            - name: PAC_AUDIT_EXECUTOR_URL
+              value: {{ $auditExecutorURL | quote }}
+            - name: PAC_AUDIT_EXECUTOR_TIMEOUT
+              value: {{ .Values.auditExecutor.timeout | quote }}
+            {{- if or .Values.global.auditExecutorTokenSecretRef.name .Values.global.auditExecutorToken }}
+            - name: PAC_AUDIT_EXECUTOR_BEARER_TOKEN
+              {{- if .Values.global.auditExecutorTokenSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.auditExecutorTokenSecretRef.name | quote }}
+                  key: {{ .Values.global.auditExecutorTokenSecretRef.key | quote }}
+              {{- else }}
+              value: {{ .Values.global.auditExecutorToken | quote }}
+              {{- end }}
+            {{- end }}
+            # ---- Semantic workflow-gate executor -------------------------------
+            {{- $workflowGateURL := .Values.workflowGateExecutor.url | default "" }}
+            {{- if and (not $workflowGateURL) .Values.orce.enabled }}
+            {{- $workflowGateURL = printf "http://%s-orce:%v%s" .Release.Name (.Values.orce.service.port | default 1880) .Values.workflowGateExecutor.path }}
+            {{- end }}
+            - name: PAC_WORKFLOW_GATE_EXECUTOR_URL
+              value: {{ $workflowGateURL | quote }}
+            - name: PAC_WORKFLOW_GATE_EXECUTOR_TIMEOUT
+              value: {{ .Values.workflowGateExecutor.timeout | quote }}
+            {{- if or .Values.global.workflowGateTokenSecretRef.name .Values.global.workflowGateToken }}
+            - name: PAC_WORKFLOW_GATE_EXECUTOR_BEARER_TOKEN
+              {{- if .Values.global.workflowGateTokenSecretRef.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.workflowGateTokenSecretRef.name | quote }}
+                  key: {{ .Values.global.workflowGateTokenSecretRef.key | quote }}
+              {{- else }}
+              value: {{ .Values.global.workflowGateToken | quote }}
+              {{- end }}
+            {{- end }}
+            # ---- PDF-Core (C2PA PDF compiler/verifier) --------------------------
+            - name: PDF_CORE_URL
+              value: {{ include "digital-contracting-service.pdfCoreURL" . | quote }}
+            - name: PDF_CORE_CONTEXT_IRI
+              value: {{ include "digital-contracting-service.pdfCoreContextIRI" . | quote }}
+            # ---- Status list this deployment serves (DCS-OR-C2PA-005, ADR-34) ----
+            # The certificate chain that publishes this deployment's signing key.
+            # The status list it serves carries it as x5c, and its own trust
+            # anchor is read back out of it, since a deployment verifies its own
+            # list through exactly the path it verifies anyone else's.
+            {{- $issuerChain := include "digital-contracting-service.issuerX5ChainPath" . }}
+            {{- if $issuerChain }}
+            - name: DCS_ISSUER_X5CHAIN_PATH
+              value: {{ $issuerChain | quote }}
+            {{- end }}
+            # The XFSC statuslist-service is no longer wired in: the credentials
+            # this deployment issues name its OWN list above (ADR-34), and it is
+            # the only thing that ever pointed there. The subchart is still
+            # deployed, with nothing consuming it, while its removal is staged.
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.customCA.enabled .Values.volumeMounts .Values.pkcs11.provisioning.enabled .Values.identity.enabled .Values.signing.tsaTrustCertSecret }}
+          volumeMounts:
+          {{- if .Values.customCA.enabled }}
+            - name: custom-ca-certs
+              mountPath: /usr/local/share/ca-certificates/custom
+              readOnly: true
+          {{- end }}
+          {{- if .Values.pkcs11.provisioning.enabled }}
+            - name: hsm-token
+              mountPath: {{ .Values.pkcs11.provisioning.tokenDir | quote }}
+          {{- end }}
+          {{- if and .Values.identity.enabled .Values.pkcs11.provisioning.publishSecrets }}
+            - name: identity
+              mountPath: {{ .Values.identity.mountPath | quote }}
+              readOnly: true
+          {{- end }}
+          {{- if .Values.signing.tsaTrustCertSecret }}
+            - name: tsa-trust
+              mountPath: /etc/dcs/tsa-trust
+              readOnly: true
+          {{- end }}
+          {{- if and .Values.oid4vp.trust.enabled .Values.oid4vp.trust.existingConfigMap }}
+            - name: oid4vp-trust
+              mountPath: {{ .Values.oid4vp.trust.existingConfigMapMountPath | quote }}
+              readOnly: true
+          {{- end }}
+          {{- if .Values.contractTargets }}
+            - name: contract-targets
+              mountPath: /etc/dcs/contract-targets
+              readOnly: true
+          {{- end }}
+          {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+        {{- if .Values.statusListLocalhostProxy.enabled }}
+        - name: statuslist-localhost-proxy
+          image: "{{ .Values.statusListLocalhostProxy.image.repository }}:{{ .Values.statusListLocalhostProxy.image.tag }}"
+          imagePullPolicy: {{ .Values.statusListLocalhostProxy.image.pullPolicy }}
+          ports:
+            - name: sl-proxy
+              containerPort: {{ .Values.statusListLocalhostProxy.listenPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: statuslist-localhost-proxy-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.statusListLocalhostProxy.readinessPath | quote }}
+              port: sl-proxy
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+        {{- end }}
+      {{- if or .Values.customCA.enabled .Values.volumes .Values.pkcs11.provisioning.enabled .Values.statusListLocalhostProxy.enabled .Values.identity.enabled .Values.signing.tsaTrustCertSecret (and .Values.dss .Values.dss.enabled) }}
+      volumes:
+      {{- if .Values.customCA.enabled }}
+        - name: custom-ca-certs
+          configMap:
+            name: {{ .Values.customCA.configMapName }}
+      {{- end }}
+      {{- if .Values.pkcs11.provisioning.enabled }}
+        - name: hsm-token
+          persistentVolumeClaim:
+            claimName: {{ include "digital-contracting-service.fullname" . }}-hsm-token
+      {{- end }}
+      {{- if .Values.statusListLocalhostProxy.enabled }}
+        - name: statuslist-localhost-proxy-config
+          configMap:
+            name: {{ include "digital-contracting-service.fullname" . }}-statuslist-localhost-proxy
+      {{- end }}
+      {{- if and .Values.identity.enabled .Values.pkcs11.provisioning.publishSecrets }}
+        - name: identity
+          secret:
+            secretName: {{ include "digital-contracting-service.identitySecretName" . | quote }}
+            # Published by the hsm-provision post-install hook AFTER the pod is
+            # scheduled — the app itself now retries hsm.Open in the background
+            # and serves a 503 bootstrap response until key material exists
+            # (see cmd/dcs/main.go openHSMWithRetry), so it must be able to
+            # start before this secret exists. required would FailedMount →
+            # BackOff before the container even starts.
+            optional: true
+      {{- end }}
+      {{- if .Values.signing.tsaTrustCertSecret }}
+        - name: tsa-trust
+          secret:
+            secretName: {{ .Values.signing.tsaTrustCertSecret | quote }}
+            items:
+              - key: tsa-cert.pem
+                path: tsa-cert.pem
+      {{- end }}
+      {{- if and .Values.oid4vp.trust.enabled .Values.oid4vp.trust.existingConfigMap }}
+        # NOT optional: an absent or unreadable trust document is fatal at
+        # startup, and failing to mount is the more diagnosable failure.
+        - name: oid4vp-trust
+          configMap:
+            name: {{ .Values.oid4vp.trust.existingConfigMap | quote }}
+            items:
+              - key: {{ .Values.oid4vp.trust.existingConfigMapKey | quote }}
+                path: {{ .Values.oid4vp.trust.existingConfigMapKey | quote }}
+      {{- end }}
+      {{- if .Values.contractTargets }}
+        - name: contract-targets
+          configMap:
+            name: {{ include "digital-contracting-service.fullname" . }}-contract-targets
+      {{- end }}
+      {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

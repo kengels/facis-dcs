@@ -1,0 +1,257 @@
+# Dev values: co-deploy all dependencies, skip the DCS app itself.
+# Run the backend locally with `air` and the frontend with `vite`.
+#
+# First-time setup (uses the committed Chart.lock):
+#   helm dependency build --skip-refresh ./deployment/helm
+#
+# Install:
+#   helm install dcs ./deployment/helm -f ./deployment/helm/values.dev.yml
+#
+# Upgrade (after chart changes):
+#   helm dependency build --skip-refresh ./deployment/helm  # if Chart.yaml changed
+#   helm upgrade dcs ./deployment/helm -f ./deployment/helm/values.dev.yml
+#
+# Services exposed on localhost via NodePort (Rancher Desktop forwards these automatically):
+#   PostgreSQL       : localhost:30432
+#   Keycloak         : localhost:30080  →  realm: http://localhost:30080/realms/gaia-x
+#   Hydra public : localhost:30444  (backend + Vite proxy only — browser goes via Vite)
+#   Hydra admin  : localhost:30085
+#   NATS             : localhost:30422
+#   ORCE             : localhost:30180
+#   Credential issuer: localhost:30181  (release dcs-issuer, installed by
+#                      dev-stack.sh from values.issuer-base.yml +
+#                      values.issuer.dev.yml — NOT part of this release)
+#   Status List Service : localhost:30821  (XFSC; nothing consumes it, ADR-34)
+#   IPFS Gateway: localhost:30480
+#   IPFS API    : localhost:30501
+#
+# Backend .env.dev1 (see that file for the full set):
+#   ISSUER_DID=did:web:localhost%3A8991
+# The backend runs natively and provisions its own SoftHSM2 token via
+# dev-stack.sh (scripts/hsm-provision.sh), so no in-cluster PKCS#11 token here.
+
+# In development, don't deploy the DCS or pdf-core containers — both run locally.
+replicaCount: 0
+
+# pdf-core runs locally (started by dev-stack.sh), not as a K8s pod.
+pdfCore:
+  enabled: false
+
+# The backend runs natively (replicaCount: 0), so no in-cluster SoftHSM2 token
+# is provisioned; dev-stack.sh provisions the local token instead.
+pkcs11:
+  provisioning:
+    enabled: false
+
+# No private registry needed for local dev (all dep images are public)
+imagePullSecrets: []
+dockerRegistry:
+  create: false
+
+postgresql:
+  enabled: true
+  auth:
+    username: dcs
+    password: dcs
+    database: dcs
+  additionalDatabases: ["fc", "statuslist", "hydra"]
+  persistence:
+    # The dependency stack is upgraded in place by dev-stack.sh. Keeping the
+    # databases on emptyDir loses Hydra clients, status lists and DCS data as
+    # soon as PostgreSQL rolls during an upgrade.
+    enabled: true
+  service:
+    type: NodePort
+    nodePort: 30432
+
+hydra:
+  enabled: true
+  service:
+    type: NodePort
+    publicPort: 4444
+    adminPort: 4445
+    publicNodePort: 30444
+    adminNodePort: 30085
+  config:
+    dsn: "postgres://dcs:dcs@dcs-postgresql:5432/hydra?sslmode=disable"
+    dev: true
+    selfIssuerURL: "http://localhost:5173"
+    loginURL: "http://localhost:5173/ui/"
+    consentURL: "http://localhost:5173/api/auth/consent"
+    logoutURL: "http://localhost:5173/api/auth/logout-complete"
+  secrets:
+    system: "dev-hydra-system-secret-change-me"
+  clients:
+    - client_id: dcs-client
+      client_secret: dcs-secret
+      grant_types: ["authorization_code", "refresh_token"]
+      response_types: ["code"]
+      scope: "openid offline_access"
+      redirect_uris: ["http://localhost:5173/api/auth/callback"]
+      post_logout_redirect_uris: ["http://localhost:5173/api/auth/logout-complete"]
+      token_endpoint_auth_method: client_secret_post
+      skip_consent: true
+
+nats:
+  enabled: true
+  service:
+    type: NodePort
+    nodePort: 30422
+
+# No local Federated Catalogue in dev — our own local federated-catalogue/
+# keycloak/fuseki/fc-postgres charts (see Chart.yaml) are disabled here; see
+# values.*.yml on the IONOS-style environments for how to wire them up if a
+# dev instance needs it.
+# The Federated Catalogue backs template publishing, so local dev runs it
+# rather than skipping it: with FC unconfigured the backend starts, but nothing
+# can be published. Configured-but-unreachable is fatal by design (the
+# readiness gate and schema sync both are), so the addresses below must resolve.
+# The backend runs on the host under air, so fc-service and its Keycloak are
+# exposed on fixed NodePorts that backend/.env.dev1 points at.
+federatedCatalogue:
+  enabled: true
+  apiURL: "http://fc-service:8081"
+  oauth:
+    # The service-account client the chart's realm actually provisions. It is
+    # not "dcs-fc-client": nothing creates that, so the token grant 401s.
+    clientID: "federated-catalogue"
+    clientSecret: "**********"
+
+fcservice:
+  enabled: true
+  portal:
+    enabled: false
+  realmProvision:
+    enabled: true
+  service:
+    type: NodePort
+    nodePort: 30081
+  keycloak:
+    # The backend runs on the host and mints its FC token through the NodePort,
+    # so the token's iss is the localhost URL. fc-service must expect that same
+    # issuer or it rejects every call with 401. It still fetches the signing
+    # keys in-cluster: the JWKS URL is configured separately.
+    issuerUrl: "http://localhost:30080/auth"
+
+# Keycloak mints FC tokens with the issuer the caller used, so the host-side
+# backend and the in-cluster fc-service must agree on one address: the NodePort.
+fcKeycloakApp:
+  service:
+    type: NodePort
+    nodePort: 30080
+
+fcKeycloak:
+  realmURL: "http://localhost:30080/auth/realms/federated-catalogue-realm"
+# Not used when replicaCount=0, but kept as documentation for the backend .env.
+signing:
+  issuerDID: "did:web:localhost"
+
+oidc:
+  clientID: "dcs-client"
+  redirectURI: "http://localhost:5173/api/auth/callback"
+  logoutRedirectURI: "http://localhost:5173/api/auth/logout-complete"
+  realm: "gaia-x"
+  keycloakScheme: "http"
+
+# The chart default trusts no issuer (values.yaml). The dev stack runs against
+# the dev fixture baked into the image, so it opts back in explicitly —
+# otherwise the backend renders with no trust document and every credential
+# presentation fails closed.
+oid4vp:
+  trust:
+    enabled: true
+    dataPath: /app/config/oid4vp/trust.dev.json
+    x5cAnchorsPath: /app/config/oid4vp/x5c-trust-anchors.dev.pem
+
+# XFSC Status List Service (DCS-OR-C2PA-005)
+statuslistService:
+  enabled: true
+  service:
+    type: NodePort
+    port: 8080
+    nodePort: 30821
+  keycloak:
+    hostname: "localhost:30080"
+    issuerScheme: "http"
+  oauth:
+    clientID: "dcs-fc-client"
+  # Allow POSTing self-descriptions without signature verification in dev
+  verificationVpSignature: false
+  verificationVcSignature: false
+  database:
+    enabled: true
+    host: "dcs-postgresql"
+    port: "5432"
+    name: "statuslist"
+    user: "dcs"
+    password: "dcs"
+    sslMode: "disable"
+  nats:
+    url: "nats://dcs-nats:4222"
+
+orce:
+  enabled: true
+  persistence:
+    enabled: false
+  service:
+    type: NodePort
+    nodePort: 30180
+
+archiveNotary:
+  notaryPath: "/archive/notary"
+  auditLogPath: "/archive-audit-events.jsonl"
+
+global:
+  archiveAuditToken: "dev-archive-audit-token"
+
+ipfs:
+  enabled: true
+  persistence:
+    enabled: true
+  api:
+    cors:
+      enabled: true
+      allowOrigins:
+        - "http://localhost:30480"
+        - "http://127.0.0.1:30480"
+        - "http://localhost:30501"
+        - "http://127.0.0.1:30501"
+        - "http://webui.ipfs.io"
+        - "https://webui.ipfs.io"
+  service:
+    type: NodePort
+    gatewayNodePort: 30480
+    apiNodePort: 30501
+
+ipfsDocumentManager:
+  enabled: true
+  service:
+    type: NodePort
+    nodePort: 30481
+  ipfs:
+    host: "dcs-ipfs"
+    apiGatewayURL: "http://dcs-ipfs:8080/ipfs"
+    rpcApiPort: 5001
+    logLevel: "debug"
+  config:
+    serverMode: "debug"
+
+# IPFS client env vars are not used when replicaCount=0 (backend runs locally).
+# For local dev, set in backend/.env.dev:
+#   IPFS_TENANT_BASE_URL=
+#   IPFS_MFS_BASE_URL=http://localhost:30501
+# In-cluster, IPFS_MFS_BASE_URL is auto-wired from the ipfs sub-chart. If
+# ipfsDocumentManager is enabled with a valid image, IPFS_TENANT_BASE_URL is
+# auto-wired to the document-manager service.
+
+route:
+  basePath: "/api"
+
+extraEnv:
+  # This stack trusts the issuer fixture committed to the repo.
+  - name: DCS_ALLOW_DEV_TRUST
+    value: "true"
+
+# In-cluster service credential for the background PDF regenerator, which runs on
+# NATS events with no user JWT. Never a shared or committed value in a real
+# deployment: the chart refuses to render without one.

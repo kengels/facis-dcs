@@ -1,0 +1,28 @@
+image:
+  repository: postgres
+  tag: "16-alpine"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5432
+  nodePort: null
+
+auth:
+  username: dcs
+  password: dcs
+  database: dcs
+
+# Additional databases to create on init (list of names)
+additionalDatabases: []
+
+persistence:
+  enabled: false
+  size: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  # Empty uses the cluster default StorageClass. Set an encrypted class per
+  # environment; this volume holds the dcs/hydra/statuslist databases.
+  storageClassName: ""
+
+resources: {}

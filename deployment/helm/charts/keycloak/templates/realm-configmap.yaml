@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fc-keycloak-realm-configmap
+  labels:
+    app.kubernetes.io/name: fc-keycloak
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  fc-realm.json: |-
+{{ .Files.Get "files/fc-realm.json" | indent 4 }}

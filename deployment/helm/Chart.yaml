@@ -1,0 +1,71 @@
+apiVersion: v2
+name: digital-contracting-service
+description: A Helm chart for Kubernetes
+
+type: application
+version: 0.2.2
+appVersion: "1.16.0"
+dependencies:
+  - name: postgresql
+    version: "0.1.0"
+    repository: "file://charts/postgresql"
+    condition: postgresql.enabled
+  - name: hydra
+    version: "0.1.0"
+    repository: "file://charts/hydra"
+    condition: hydra.enabled
+  - name: nats
+    version: "0.1.0"
+    repository: "file://charts/nats"
+    condition: nats.enabled
+  - name: orce
+    version: "0.1.0"
+    repository: "file://charts/orce"
+    condition: orce.enabled
+  - name: dss
+    version: "0.1.0"
+    repository: "file://charts/dss"
+    condition: dss.enabled
+  - name: federated-catalogue
+    version: "0.1.0"
+    repository: "file://charts/federated-catalogue"
+    condition: fcservice.enabled
+    alias: fcservice
+  - name: keycloak
+    version: "0.1.0"
+    repository: "file://charts/keycloak"
+    condition: fcservice.enabled
+    alias: fcKeycloakApp
+  - name: fuseki
+    version: "0.1.0"
+    repository: "file://charts/fuseki"
+    condition: fcservice.enabled
+    alias: fcFuseki
+  - name: fc-postgres
+    version: "0.1.0"
+    repository: "file://charts/fc-postgres"
+    condition: fcservice.enabled
+    alias: fcPostgres
+  - name: ipfs
+    version: "0.1.0"
+    repository: "file://charts/ipfs"
+    condition: ipfs.enabled
+    alias: ipfs
+  - name: ipfs-document-manager
+    version: "0.1.0"
+    repository: "file://charts/ipfs-document-manager"
+    condition: ipfsDocumentManager.enabled
+    alias: ipfsDocumentManager
+  - name: statuslist-service
+    version: "0.1.0"
+    repository: "file://charts/statuslist-service"
+    condition: statuslistService.enabled
+    alias: statuslistService
+  - name: kube-prometheus-stack
+    version: "85.2.0"
+    repository: "https://prometheus-community.github.io/helm-charts"
+    condition: monitoring.enabled
+  - name: traefik
+    version: "41.0.0"
+    repository: "https://traefik.github.io/charts"
+    condition: traefik.enabled

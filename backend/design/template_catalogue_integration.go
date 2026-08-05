@@ -4,49 +4,183 @@ import (
 	. "goa.design/goa/v3/dsl"
 )
 
+var TemplateCatalogueItem = Type("TemplateCatalogueItem", func() {
+	Description("Template catalogue item returned to the client")
+
+	Attribute("did", String, "Decentralized Identifier of the contract template")
+	Attribute("version", Int, "The version of the contract template")
+	Attribute("name", String, "The name of the contract template")
+	Attribute("description", String, "A description for that template")
+	Attribute("template_type", String, "The type of the template")
+	Attribute("schema_version", Int, "Schema version of the contract template")
+	Attribute("participant_id", String, "Participant id")
+	Attribute("created_at", String, "The timestamp when the contract template was created")
+	Attribute("updated_at", String, "The timestamp when the contract template was updated")
+
+	Required("did")
+})
+
+var TemplateCatalogueRetrieveRequest = Type("TemplateCatalogueRetrieveRequest", func() {
+	Description("Retrieve template catalogues from Federated Catalogue")
+
+	Token("token", String, "JWT token")
+
+	Attribute("offset", Int, "Pagination offset")
+	Attribute("limit", Int, "Pagination limit")
+
+	Required("offset", "limit")
+})
+
+var TemplateCatalogueRetrieveResponse = Type("TemplateCatalogueRetrieveResponse", func() {
+	Description("Retrieve template catalogues response")
+
+	Attribute("totalCount", Int, "Total count of matched catalogue entries")
+	Attribute("items", ArrayOf(TemplateCatalogueItem), "Catalogue items")
+
+	Required("totalCount", "items")
+})
+
+var TemplateCatalogueSearchRequest = Type("TemplateCatalogueSearchRequest", func() {
+	Description("Search template catalogues in Federated Catalogue")
+
+	Token("token", String, "JWT token")
+
+	Attribute("did", String, "Decentralized Identifier of the contract template")
+	Attribute("version", Int, "The version of the contract template")
+	Attribute("name", String, "The name of the contract template")
+	Attribute("description", String, "A description for that template")
+	Attribute("offset", Int, "Pagination offset; values less than 1 start at the beginning")
+	Attribute("limit", Int, "Pagination limit; values less than 1 return all matches")
+
+	Required("offset", "limit")
+})
+
+var TemplateCatalogueRetrieveByIDRequest = Type("TemplateCatalogueRetrieveByIDRequest", func() {
+	Description("Retrieve a template catalogue by did and version")
+
+	Token("token", String, "JWT token")
+
+	Attribute("did", String, "Decentralized Identifier of the contract template")
+	Attribute("version", Int, "The version of the contract template")
+	Required("did", "version")
+})
+
+var TemplateCatalogueRetrieveByIDResponse = Type("TemplateCatalogueRetrieveByIDResponse", func() {
+	Description("Template catalogue detail response")
+
+	Attribute("did", String, "Decentralized Identifier of the contract template")
+	Attribute("version", Int, "The version of the contract template")
+	Attribute("name", String, "The name of the contract template")
+	Attribute("description", String, "A description for that template")
+	Attribute("template_type", String, "The type of the template")
+	Attribute("schema_version", Int, "Schema version of the contract template")
+	Attribute("template_data", Any, "The template data of the contract template")
+	// Optional participant summary
+	Attribute("participant_id", String, "Issuer participant DID")
+	Attribute("created_at", String, "The timestamp when the contract template was created")
+	Attribute("updated_at", String, "The timestamp when the contract template was updated")
+
+	Required("did")
+})
+
 // Template Catalogue Integration Service (TR <-> XFSC Catalogue)
 var _ = Service("TemplateCatalogueIntegration", func() {
-	Description("Integration APIs between Template Repository (TR) and XFSC Catalogue for template discovery, request, and registration.")
+	Description("Integration APIs between the Template Repository (TR) and the XFSC Catalogue for template retrieval.")
 
-	// TBD: callback path and method not defined in SRS
-	Method("discover", func() {
-		Description("Discover templates via XFSC Catalogue.")
+	// GET /catalogue/template/retrieve
+	Method("retrieve_template", func() {
+		Description("Retrieve templates via XFSC Catalogue.")
 		Meta("dcs:requirements", "DCS-IR-SI-01")
 
-		HTTP(func() {
-			// NOTE: Defined placeholder path (DCS-IR-SI-01 does not specify concrete path).
-			GET("/catalogue/template/discover")
-			Response(StatusOK)
+		// The Template Manager owns the Template Catalogue view and the register
+		// that follows it, and the catalogue pages load the local template
+		// repository (/template/retrieve, Template roles only) to tell an
+		// already-registered entry from a new one. A contract role draws its
+		// contract from the registered templates of /contract/templates, never
+		// from the catalogue, so the catalogue is a Template Manager surface.
+		Security(JWTAuth, func() {
+			Scope("Template Manager")
+			Scope("Contract Creator")
+			Scope("Contract Reviewer")
+			Scope("Contract Approver")
+			Scope("Contract Manager")
+			Scope("Contract Signer")
 		})
 
-		Result(Any)
+		Payload(TemplateCatalogueRetrieveRequest)
+		Result(TemplateCatalogueRetrieveResponse)
+
+		Error("bad_request", ErrorResult, "Bad request")
+		Error("internal_error", ErrorResult, "Internal server error")
+
+		HTTP(func() {
+			GET("/catalogue/template/retrieve")
+			Param("offset")
+			Param("limit")
+			Response(StatusOK)
+		})
 	})
 
-	// TBD: callback path and method not defined in SRS
-	Method("request", func() {
-		Description("Request template via XFSC Catalogue.")
+	// GET /catalogue/template/retrieve/{did}
+	Method("retrieve_template_by_id", func() {
+		Description("Retrieve template via XFSC Catalogue.")
 		Meta("dcs:requirements", "DCS-IR-SI-01")
 
-		HTTP(func() {
-			// NOTE: Defined placeholder path (DCS-IR-SI-01 does not specify concrete path).
-			POST("/catalogue/template/request")
-			Response(StatusOK)
+		Security(JWTAuth, func() {
+			Scope("Template Manager")
+			Scope("Contract Creator")
+			Scope("Contract Reviewer")
+			Scope("Contract Approver")
+			Scope("Contract Manager")
+			Scope("Contract Signer")
 		})
 
-		Result(Any)
+		Payload(TemplateCatalogueRetrieveByIDRequest)
+		Result(TemplateCatalogueRetrieveByIDResponse)
+
+		Error("bad_request", ErrorResult, "Bad request")
+		Error("internal_error", ErrorResult, "Internal server error")
+
+		HTTP(func() {
+			GET("/catalogue/template/retrieve/{did}")
+			Param("did")
+			Param("version")
+			Response(StatusOK)
+		})
 	})
 
-	// TBD: callback path and method not defined in SRS
-	Method("register", func() {
-		Description("Register template into XFSC Catalogue.")
+	// GET /catalogue/template/search
+	Method("search_template", func() {
+		Description("Search templates in XFSC Catalogue by metadata fields.")
 		Meta("dcs:requirements", "DCS-IR-SI-01")
 
-		HTTP(func() {
-			// NOTE: Defined placeholder path (DCS-IR-SI-01 does not specify concrete path).
-			POST("/catalogue/template/register")
-			Response(StatusOK)
+		Security(JWTAuth, func() {
+			Scope("Template Manager")
+			Scope("Contract Creator")
+			Scope("Contract Reviewer")
+			Scope("Contract Approver")
+			Scope("Contract Manager")
+			Scope("Contract Signer")
 		})
 
-		Result(Any)
+		Payload(TemplateCatalogueSearchRequest)
+		Result(TemplateCatalogueRetrieveResponse)
+
+		Error("bad_request", ErrorResult, "Bad request")
+		Error("internal_error", ErrorResult, "Internal server error")
+
+		HTTP(func() {
+			GET("/catalogue/template/search")
+			Param("did")
+			Param("version")
+			Param("name")
+			Param("description")
+			Param("offset")
+			Param("limit")
+			Response(StatusOK)
+			Response("bad_request", StatusBadRequest)
+			Response("internal_error", StatusInternalServerError)
+		})
 	})
+
 })

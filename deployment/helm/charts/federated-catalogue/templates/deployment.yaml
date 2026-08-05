@@ -1,0 +1,176 @@
+{{- $jdbcURL := .Values.database.url | default "jdbc:postgresql://fc-postgres:5432/postgres" }}
+{{/* Authority of the JDBC URL, so the startup gate below waits on exactly the
+     host:port the datasource connects to. */}}
+{{- $dbAuthority := regexFind "//[^/?]+" $jdbcURL | trimPrefix "//" }}
+{{- $dbHost := $dbAuthority | splitList ":" | first }}
+{{- $dbPort := "5432" }}
+{{- if contains ":" $dbAuthority }}
+{{- $dbPort = $dbAuthority | splitList ":" | last }}
+{{- end }}
+{{- $fusekiURI := .Values.fuseki.uri | default "http://fc-fuseki:3030/ds" }}
+{{- $keycloakInternalUrl := .Values.keycloak.internalUrl | default "http://fc-keycloak-http:8080/auth" }}
+{{- $keycloakIssuerUrl := "" }}
+{{- if .Values.keycloak.issuerUrl }}
+{{- $keycloakIssuerUrl = .Values.keycloak.issuerUrl }}
+{{- else if .Values.keycloak.hostname }}
+{{- $keycloakIssuerUrl = printf "%s://%s/auth" (.Values.keycloak.issuerScheme | default "https") .Values.keycloak.hostname }}
+{{- else }}
+{{- $keycloakIssuerUrl = $keycloakInternalUrl }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fc-service
+  labels:
+    app.kubernetes.io/name: federated-catalogue
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: federated-catalogue
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: federated-catalogue
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      initContainers:
+        # fc-service runs Liquibase during Spring context startup and Hikari is
+        # configured fail-fast, so a Postgres that is still initialising makes
+        # the process exit 1 instead of retrying. On a cold install both start
+        # together and the container crash-restarts once or twice before the
+        # database is up. Wait here so the pod reaches Ready without a restart.
+        # Uses the fc-service image itself (Alpine, ships nc) — no extra pull.
+        - name: wait-for-fc-postgres
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until nc -z {{ $dbHost }} {{ $dbPort }}; do
+                echo "Waiting for {{ $dbHost }}:{{ $dbPort }} ..."
+                sleep 2
+              done
+              echo "{{ $dbHost }}:{{ $dbPort }} is accepting connections."
+          {{- with .Values.resources }}
+          # A pod's effective limit is max(sum of containers, max of init
+          # containers), so mirroring the main block here costs nothing while an
+          # unset one lets a LimitRange default size the whole pod.
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      containers:
+        # Container name matches fc-realm-provision-job.yaml's hardcoded
+        # FC_CONTAINER="fcservice" (its patch_env targets this container by
+        # name in a strategic-merge-patch) — do not rename without also
+        # updating that Job.
+        - name: fcservice
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            # Graph store: Fuseki, not neo4j (see ../fuseki's chart comment
+            # for why — neo4j's n10s plugin crash-loops on patch-version
+            # image drift; Fuseki has no such plugin surface).
+            - name: GRAPHSTORE_IMPL
+              value: "fuseki"
+            - name: GRAPHSTORE_FUSEKI_URI
+              value: {{ $fusekiURI | quote }}
+            # Spring Data Neo4j autoconfigures a health indicator regardless
+            # of GRAPHSTORE_IMPL — without disabling it, /actuator/health
+            # stays DOWN forever since no neo4j is deployed at all.
+            - name: MANAGEMENT_HEALTH_NEO4J_ENABLED
+              value: "false"
+            # PostgreSQL
+            - name: SPRING_DATASOURCE_URL
+              value: {{ $jdbcURL | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              value: {{ .Values.database.username | default "keycloak" | quote }}
+            {{- if .Values.database.password }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: {{ .Values.database.password | quote }}
+            {{- else }}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fc-postgres
+                  key: password
+            {{- end }}
+            # Keycloak
+            {{- if .Values.security.enabled }}
+            - name: KEYCLOAK_AUTH_SERVER_URL
+              value: {{ $keycloakInternalUrl | quote }}
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI
+              value: {{ printf "%s/realms/%s" $keycloakIssuerUrl (.Values.keycloak.realm | default "federated-catalogue-realm") | quote }}
+            - name: SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI
+              value: {{ printf "%s/realms/%s/protocol/openid-connect/certs" $keycloakInternalUrl (.Values.keycloak.realm | default "federated-catalogue-realm") | quote }}
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.keycloak.realm | default "federated-catalogue-realm" | quote }}
+            - name: KEYCLOAK_RESOURCE
+              value: {{ .Values.keycloak.clientId | default "federated-catalogue" | quote }}
+            {{- if .Values.keycloak.clientSecret }}
+            - name: KEYCLOAK_CREDENTIALS_SECRET
+              value: {{ .Values.keycloak.clientSecret | quote }}
+            {{- else }}
+            - name: KEYCLOAK_CREDENTIALS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fc-keycloak-client-secret
+                  key: keycloak_client_secret
+            {{- end }}
+            {{- end }}
+            # FC service config
+            - name: FEDERATED_CATALOGUE_VERIFICATION_SIGNATURES
+              value: {{ .Values.verifySignatures | default "false" | quote }}
+            - name: FEDERATED_CATALOGUE_VERIFICATION_VP_SIGNATURE
+              value: {{ .Values.verificationVpSignature | toString | quote }}
+            - name: FEDERATED_CATALOGUE_VERIFICATION_VC_SIGNATURE
+              value: {{ .Values.verificationVcSignature | toString | quote }}
+            - name: DATASTORE_FILE_PATH
+              value: "/var/lib/fc-service/filestore"
+            - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              value: "health,info,metrics"
+            - name: MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS
+              value: "always"
+            {{- if .Values.route.path }}
+            - name: SERVER_SERVLET_CONTEXT_PATH
+              value: {{ .Values.route.path | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: logs
+              mountPath: /logs
+            - name: tmp
+              mountPath: /tmp
+            - name: filestore
+              mountPath: /var/lib/fc-service/filestore
+          # Native actuator health is the sole workload-readiness signal. The
+          # DCS performs the one functional verification call after this turns
+          # UP; no artificial cache warm-up is used.
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.route.path | default "" }}/actuator/health
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 2
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: filestore
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: fc-service-filestore
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

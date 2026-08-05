@@ -1,0 +1,103 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/eclipse-xfsc/federated-catalogue/fc-service-server
+  tag: "sha-c243a65@sha256:535024f1b92fa8e48b59e93bc7040c0a32aed0d06f73c35260eb408dc4ff3594"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8081
+  nodePort: null
+
+# Route path when fc-service is behind a reverse proxy at a subpath
+# (e.g. via this DCS chart's own ingress, see fcserviceRoutePath helper).
+route:
+  path: ""
+
+# Fuseki graph store (see ../fuseki). Deliberately not neo4j — see
+# ../fuseki/values.yaml's comment for why.
+fuseki:
+  uri: ""       # auto-wired to http://fc-fuseki:3030/ds when empty
+  dataset: "ds"
+
+# PostgreSQL connection (see ../fc-postgres, shared with the owned Keycloak).
+database:
+  url: ""       # auto-wired to jdbc:postgresql://fc-postgres:5432/postgres when empty
+  username: ""  # falls back to "keycloak"
+  password: ""  # falls back to "keycloak" (fc-postgres Secret's "password" key)
+
+# Keycloak connection (see ../keycloak).
+# internalUrl: if empty, auto-wired to http://fc-keycloak-http:8080/auth
+# hostname:    set when Keycloak is reachable behind a reverse proxy;
+#              used to build the JWT issuer URL visible to clients
+# issuerUrl:   Keycloak auth-server ROOT the JWT issuer is derived from, e.g.
+#              https://host/auth — "/realms/<realm>" is appended to it, exactly
+#              as it is to the hostname-derived form. Takes precedence over
+#              hostname. It is NOT the full issuer URI: passing one that already
+#              ends in the realm yields ".../realms/<realm>/realms/<realm>",
+#              every FC token 401s, and the backend crash-loops on catalogue sync.
+keycloak:
+  internalUrl: ""
+  hostname: ""
+  issuerUrl: ""
+  issuerScheme: "https"
+  realm: "federated-catalogue-realm"
+  clientId: "federated-catalogue"
+  # Literal placeholder committed in the federated-catalogue-realm's own
+  # `federated-catalogue` client representation (chart content, not
+  # server-generated) — Keycloak's import takes it at face value, not a
+  # real secret to generate or rotate. See ../keycloak/files/fc-realm.json.
+  clientSecret: "**********"
+
+security:
+  enabled: true
+
+# VP/VC signature verification on self-description ingest.
+verifySignatures: false
+verificationVpSignature: false
+verificationVcSignature: false
+extraEnv: []
+
+# Persistent file store for non-RDF asset binaries and persisted schema
+# files. The mount path MUST equal DATASTORE_FILE_PATH below.
+persistence:
+  enabled: false
+  size: 10Gi
+  storageClassName: ""
+
+resources:
+  requests:
+    # Semantic JSON-LD verification is CPU-bound during the JVM cold path.
+    # Live measurement with one core exceeded the DCS client's single-call
+    # budget; reserve half a core and allow two without changing memory.
+    cpu: 500m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+portal:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/eclipse-xfsc/federated-catalogue/fc-demo-portal
+    tag: "sha-c243a65@sha256:a9a16cbc9cdcdf991551d49bbedcb42df5e1d7371edd013c42f4de95d0a1c4c5"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8088
+    nodePort: null
+  route:
+    path: ""
+  keycloak:
+    clientId: ""
+    clientSecret: ""
+  extraEnv: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
